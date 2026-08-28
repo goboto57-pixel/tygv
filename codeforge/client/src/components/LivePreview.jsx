@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
+import { Maximize2, X, ExternalLink, RefreshCw } from "lucide-react";
 
 // Builds a self-contained HTML document from the project's files so the
 // preview renders exactly what the agent produced — including CSS and JS that
@@ -79,14 +80,82 @@ export default function LivePreview({ files, activeFile }) {
     return content;
   }, [files, activeFile]);
 
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
+  const closeFullscreen = useCallback(() => setIsFullscreen(false), []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e) => { if (e.key === "Escape") closeFullscreen(); };
+    window.addEventListener("keydown", onKey);
+    // lock body scroll
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [isFullscreen, closeFullscreen]);
+
+  const iframe = (
+    <iframe
+      key={refreshKey}
+      title="preview"
+      srcDoc={srcDoc}
+      sandbox="allow-scripts allow-same-origin"
+      className="live-preview-frame"
+    />
+  );
+
+  if (isFullscreen) {
+    return (
+      <div className="live-preview">
+        <div className="live-preview-toolbar">
+          <span className="live-preview-label">Превью</span>
+          <div className="live-preview-actions">
+            <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
+            <button className="icon-btn" onClick={toggleFullscreen} title="Выйти из полноэкранного (Esc)"><X size={16} /></button>
+          </div>
+        </div>
+        <iframe
+          key={`fs-${refreshKey}`}
+          title="preview"
+          srcDoc={srcDoc}
+          sandbox="allow-scripts allow-same-origin"
+          className="live-preview-frame"
+          style={{ opacity: 0.3 }}
+        />
+        <div className="live-preview-fullscreen" onClick={closeFullscreen}>
+          <div className="live-preview-fullscreen-bar" onClick={(e) => e.stopPropagation()}>
+            <span>Превью — полноэкранный (Esc для выхода)</span>
+            <div className="live-preview-actions">
+              <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить"><RefreshCw size={14} /></button>
+              <button className="icon-btn" onClick={closeFullscreen} title="Закрыть (Esc)"><X size={18} /></button>
+            </div>
+          </div>
+          <div className="live-preview-fullscreen-frame-wrap" onClick={(e) => e.stopPropagation()}>
+            <iframe
+              key={`fs-inner-${refreshKey}`}
+              title="preview-fullscreen"
+              srcDoc={srcDoc}
+              sandbox="allow-scripts allow-same-origin"
+              className="live-preview-frame"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="live-preview">
-      <iframe
-        title="preview"
-        srcDoc={srcDoc}
-        sandbox="allow-scripts allow-same-origin"
-        className="live-preview-frame"
-      />
+      <div className="live-preview-toolbar">
+        <span className="live-preview-label">Превью</span>
+        <div className="live-preview-actions">
+          <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
+          <button className="icon-btn" onClick={toggleFullscreen} title="На весь экран"><Maximize2 size={14} /></button>
+        </div>
+      </div>
+      {iframe}
     </div>
   );
 }

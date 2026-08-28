@@ -595,6 +595,84 @@ export async function executeTool(toolName, args, fsMap) {
       return checkPreview(fsMap, args && args.entry);
     }
 
+    case "duplicate_file": {
+      const src = (args.source || args.path || "").replace(/^\/+/, "");
+      const dst = (args.destination || args.new_path || "").replace(/^\/+/, "");
+      if (!src || !dst) return { error: "source and destination required" };
+      if (!fsMap.has(src)) return { error: `Source not found: ${src}` };
+      if (src === dst) return { error: "source and destination are the same" };
+      fsMap.set(dst, fsMap.get(src));
+      return { result: `Duplicated ${src} -> ${dst}`, fileChanged: dst };
+    }
+
+    case "create_folder": {
+      const p = (args.path || "").replace(/^\/+/, "").replace(/\/+$/, "");
+      if (!p) return { error: "path required" };
+      const keep = `${p}/.keep`;
+      if (!fsMap.has(keep)) fsMap.set(keep, "");
+      return { result: `Folder created: ${p}`, fileChanged: keep };
+    }
+
+    case "get_project_stats": {
+      const files = Array.from(fsMap.entries());
+      let totalLines = 0;
+      let totalBytes = 0;
+      const byExt = {};
+      let largest = null;
+      for (const [path, content] of files) {
+        const bytes = Buffer.byteLength(content || "", "utf8");
+        totalBytes += bytes;
+        const lines = (content || "").split("\n").length;
+        totalLines += lines;
+        const ext = (path.split(".").pop() || "").toLowerCase().slice(0, 12);
+        byExt[ext] = (byExt[ext] || 0) + 1;
+        if (!largest || bytes > largest.bytes) largest = { path, bytes, lines };
+      }
+      return {
+        result: {
+          totalFiles: files.length,
+          totalLines,
+          totalBytes,
+          byExt,
+          largest,
+          avgLinesPerFile: files.length ? Math.round(totalLines / files.length) : 0
+        }
+      };
+    }
+
+    case "todo_scan": {
+      const markers = [];
+      for (const [path, content] of fsMap.entries()) {
+        const lines = (content || "").split("\n");
+        lines.forEach((line, idx) => {
+          if (/\b(TODO|FIXME|HACK|XXX)\b/i.test(line)) {
+            markers.push({ path, line: idx + 1, text: line.trim().slice(0, 200) });
+          }
+        });
+        if (markers.length >= 200) {
+          markers.push({ truncated: true, note: "More markers exist, showing first 200" });
+          break;
+        }
+      }
+      return { result: markers.length ? markers : "No TODO/FIXME/HACK markers found." };
+    }
+
+    case "format_code": {
+      const p = (args.path || "").replace(/^\/+/, "");
+      if (!p) return { error: "path required" };
+      const content = fsMap.get(p);
+      if (content === undefined) return { error: `File not found: ${p}` };
+      // very small formatter: trim trailing whitespace, ensure final newline, collapse multiple blank lines to max 2
+      let out = content.split("\n").map((l) => l.replace(/\s+$/g, "")).join("\n");
+      out = out.replace(/\n{3,}/g, "\n\n");
+      if (out.length && !out.endsWith("\n")) out += "\n";
+      if (out !== content) {
+        fsMap.set(p, out);
+        return { result: `Formatted ${p} (${content.length} -> ${out.length} bytes)`, fileChanged: p };
+      }
+      return { result: `Already formatted: ${p}` };
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }

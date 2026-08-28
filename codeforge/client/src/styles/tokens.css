@@ -20,13 +20,13 @@
   --accent-bg: rgba(232, 233, 236, 0.08);
   --accent-glow: rgba(232, 233, 236, 0.25);
 
-  /* ---- Brand: vivid indigo/violet used for primary actions & live states ---- */
-  --brand: #7c6cff;
-  --brand-strong: #6a59f5;
-  --brand-dim: #b3aaff;
-  --brand-bg: rgba(124, 108, 255, 0.12);
-  --brand-bg-strong: rgba(124, 108, 255, 0.2);
-  --brand-glow: rgba(124, 108, 255, 0.45);
+  /* ---- Brand: monochrome (reverted from violet per user request — black/white only) ---- */
+  --brand: #e8e9ec;
+  --brand-strong: #d6d7db;
+  --brand-dim: #a3a4aa;
+  --brand-bg: rgba(232, 233, 236, 0.08);
+  --brand-bg-strong: rgba(232, 233, 236, 0.15);
+  --brand-glow: rgba(232, 233, 236, 0.25);
 
   /* ---- Semantic colors (functional only, not decorative) ---- */
   --accent-danger: #e5645a;
@@ -105,12 +105,12 @@
   --accent-dim: #4d5568;
   --accent-bg: rgba(26, 29, 36, 0.08);
   --accent-glow: rgba(26, 29, 36, 0.15);
-  --brand: #5b48f0;
-  --brand-strong: #4a37e0;
-  --brand-dim: #6f5cf0;
-  --brand-bg: rgba(91, 72, 240, 0.1);
-  --brand-bg-strong: rgba(91, 72, 240, 0.18);
-  --brand-glow: rgba(91, 72, 240, 0.3);
+  --brand: #1a1d24;
+  --brand-strong: #2a2e3a;
+  --brand-dim: #4d5568;
+  --brand-bg: rgba(26, 29, 36, 0.08);
+  --brand-bg-strong: rgba(26, 29, 36, 0.14);
+  --brand-glow: rgba(26, 29, 36, 0.15);
   --accent-danger: #c24138;
   --accent-success: #1a8a4a;
   --accent-warning: #9a6b1a;

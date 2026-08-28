@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { RotateCw, TerminalSquare, ChevronDown, AlertTriangle } from "lucide-react";
+import { RotateCw, TerminalSquare, ChevronDown, AlertTriangle, Maximize2, X } from "lucide-react";
 import {
   isWebContainerSupported,
   getContainer,
@@ -20,6 +20,7 @@ export default function WebContainerPreview({ files }) {
   const [logOpen, setLogOpen] = useState(true);
   const [previewUrl, setPreviewUrl] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const containerRef = useRef(null);
   const prevFilesRef = useRef(new Map()); // path -> content, last synced state
@@ -161,6 +162,15 @@ export default function WebContainerPreview({ files }) {
     boot();
   };
 
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (e) => { if (e.key === "Escape") setIsFullscreen(false); };
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+  }, [isFullscreen]);
+
   if (status === "unsupported") {
     return (
       <div className="wc-preview wc-preview-message">
@@ -192,6 +202,11 @@ export default function WebContainerPreview({ files }) {
           <TerminalSquare size={13} />
           <ChevronDown size={12} style={{ transform: logOpen ? "rotate(180deg)" : "none" }} />
         </button>
+        {previewUrl && (
+          <button className="wc-toolbar-btn" onClick={() => setIsFullscreen((v) => !v)} title={isFullscreen ? "Выйти из полноэкранного" : "На весь экран"}>
+            {isFullscreen ? <X size={13} /> : <Maximize2 size={13} />}
+          </button>
+        )}
       </div>
 
       {logOpen && (status !== "ready" || log.length > 0) && (
@@ -213,6 +228,17 @@ export default function WebContainerPreview({ files }) {
           </div>
         )}
       </div>
+      {isFullscreen && previewUrl && (
+        <div className="live-preview-fullscreen" onClick={() => setIsFullscreen(false)}>
+          <div className="live-preview-fullscreen-bar" onClick={(e) => e.stopPropagation()}>
+            <span>Превью — полноэкранный (Esc для выхода)</span>
+            <button className="icon-btn" onClick={() => setIsFullscreen(false)}><X size={18} /></button>
+          </div>
+          <div className="live-preview-fullscreen-frame-wrap" onClick={(e) => e.stopPropagation()}>
+            <iframe title="webcontainer-preview-fs" src={previewUrl} className="live-preview-frame" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

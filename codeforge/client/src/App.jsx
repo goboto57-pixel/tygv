@@ -24,20 +24,10 @@ function Shell() {
   const [mobileView, setMobileView] = useState("chat");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 900);
 
-  // Auto-open files panel when agent starts creating files
-  useEffect(() => {
-    if (isStreaming && files.length > 0 && !rightPanelOpen && !isMobile) {
-      setRightPanelOpen(true);
-    }
-  }, [isStreaming, files.length, rightPanelOpen, isMobile, setRightPanelOpen]);
-
-  useEffect(() => {
-    if (files.length > 0 && !rightPanelOpen && !isMobile) {
-      // also auto-open when files appear (e.g. after first tool call)
-      const t = setTimeout(() => setRightPanelOpen(true), 400);
-      return () => clearTimeout(t);
-    }
-  }, [files.length]);
+  // Auto-open disabled per user request: never open the files panel
+  // automatically when files are created. The user opens it explicitly
+  // via the TopBar button or Cmd+J. This prevents the layout from
+  // jumping during generation.
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 900);
@@ -54,8 +44,13 @@ function Shell() {
     if (modifier && e.key.toLowerCase() === "j") { e.preventDefault(); setRightPanelOpen((v) => !v); }
     if (modifier && e.key.toLowerCase() === "k") { e.preventDefault(); setCommandPaletteOpen(true); }
     if (modifier && e.key.toLowerCase() === "n") { e.preventDefault(); window.dispatchEvent(new CustomEvent("codeforge:new-chat")); }
-    if (e.key === "Escape") { setCommandPaletteOpen(false); setSettingsOpen(false); }
-  }, [setLeftSidebarOpen, setRightPanelOpen, setCommandPaletteOpen, setSettingsOpen]);
+    if (e.key === "Escape") {
+      if (commandPaletteOpen || settingsOpen) { setCommandPaletteOpen(false); setSettingsOpen(false); }
+      else if (leftSidebarOpen) setLeftSidebarOpen(false);
+      else if (rightPanelOpen) setRightPanelOpen(false);
+      else { setCommandPaletteOpen(false); setSettingsOpen(false); }
+    }
+  }, [leftSidebarOpen, rightPanelOpen, commandPaletteOpen, settingsOpen, setLeftSidebarOpen, setRightPanelOpen, setCommandPaletteOpen, setSettingsOpen]);
 
   useEffect(() => {
     window.addEventListener("keydown", onKey);
@@ -70,6 +65,9 @@ function Shell() {
 
   return (
     <div className={`shell ${leftSidebarOpen ? "left-open" : ""} ${rightPanelOpen ? "right-open" : ""}`}>
+      {leftSidebarOpen && !isMobile && (
+        <div className="sidebar-desktop-overlay" onClick={() => setLeftSidebarOpen(false)} aria-hidden="true" />
+      )}
       <Sidebar open={leftSidebarOpen} onClose={() => setLeftSidebarOpen(false)} isMobile={isMobile} />
       <div className="shell-main">
         <TopBar onMenuClick={handleMenu} onFilesClick={handleFiles} leftSidebarOpen={leftSidebarOpen} rightPanelOpen={rightPanelOpen || (isMobile && mobileView === "files")} isMobile={isMobile} />

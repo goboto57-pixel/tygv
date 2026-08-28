@@ -64,7 +64,21 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
   }
 
   let response;
-  const maxAttempts = 3;
+  const maxAttempts = 6;
+  // helper to compute backoff with jitter and respect Retry-After
+  const backoffDelay = (attempt, retryAfter) => {
+    if (retryAfter) {
+      const secs = parseInt(retryAfter, 10);
+      if (!isNaN(secs) && secs > 0 && secs < 120) return secs * 1000;
+      const date = Date.parse(retryAfter);
+      if (!isNaN(date)) return Math.max(0, date - Date.now());
+    }
+    const base = 1200;
+    const exp = base * Math.pow(2, attempt - 1);
+    const jitter = Math.floor(Math.random() * 400);
+    return Math.min(exp + jitter, 30000);
+  };
+
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
       response = await fetch(MISTRAL_API_URL, {
@@ -82,7 +96,8 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
         throw new Error(`Mistral API timed out after ${STREAM_TIMEOUT_MS / 1000}s (no response). The model or connection may have stalled — try again.`);
       }
       if (err.name !== "AbortError" && attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+        const delay = backoffDelay(attempt);
+        await new Promise((resolve) => setTimeout(resolve, delay));
         timeoutId = setTimeout(() => watchdog.abort(), STREAM_TIMEOUT_MS);
         continue;
       }
@@ -91,9 +106,13 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
 
     if (response.ok) break;
     const retryable = response.status === 408 || response.status === 429 || response.status >= 500;
+    const isRateLimit = response.status === 429;
     if (retryable && attempt < maxAttempts) {
+      const retryAfter = response.headers?.get?.("retry-after");
       try { await response.arrayBuffer(); } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 700 * attempt));
+      // rate limits get longer backoff
+      const delay = backoffDelay(attempt + (isRateLimit ? 1 : 0), retryAfter);
+      await new Promise((resolve) => setTimeout(resolve, delay));
       resetTimeout();
       continue;
     }
@@ -261,17 +280,35 @@ export async function embedTexts(texts) {
   const out = [];
   for (let i = 0; i < texts.length; i += BATCH) {
     const batch = texts.slice(i, i + BATCH);
-    const response = await fetch(MISTRAL_EMBEDDINGS_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`
-      },
-      body: JSON.stringify({
-        model: process.env.MISTRAL_EMBED_MODEL || "mistral-embed",
-        input: batch
-      })
-    });
+    let response;
+    // embeddings retry with backoff (lighter than chat)
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      response = await fetch(MISTRAL_EMBEDDINGS_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: process.env.MISTRAL_EMBED_MODEL || "mistral-embed",
+          input: batch
+        })
+      });
+      if (response.ok) break;
+      const retryable = response.status === 429 || response.status >= 500;
+      if (retryable && attempt < 4) {
+        const ra = response.headers?.get?.("retry-after");
+        let delay = 800 * Math.pow(2, attempt - 1) + Math.floor(Math.random() * 300);
+        if (ra) {
+          const secs = parseInt(ra, 10);
+          if (!isNaN(secs)) delay = Math.max(delay, secs * 1000);
+        }
+        try { await response.text(); } catch {}
+        await new Promise((r) => setTimeout(r, Math.min(delay, 15000)));
+        continue;
+      }
+      break;
+    }
     if (!response.ok) {
       const errText = await response.text();
       throw new Error(`Mistral embeddings error ${response.status}: ${errText}`);

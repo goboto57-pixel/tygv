@@ -291,5 +291,64 @@ export const toolDefinitions = [
         required: ["text"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "duplicate_file",
+      description: "Duplicate a file to a new path (copy content). Useful for templating or versioning.",
+      parameters: {
+        type: "object",
+        properties: {
+          source: { type: "string", description: "Existing file path" },
+          destination: { type: "string", description: "New file path" }
+        },
+        required: ["source", "destination"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "create_folder",
+      description: "Create an empty folder marker (by creating a .keep file). Folders are virtual in the file tree.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Folder path, e.g. src/components" }
+        },
+        required: ["path"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_project_stats",
+      description: "Return project statistics: total files, total lines, size by extension, largest files. Read-only.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "todo_scan",
+      description: "Scan all files for TODO, FIXME, HACK, XXX markers and return them with file and line.",
+      parameters: { type: "object", properties: {}, required: [] }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "format_code",
+      description: "Format a file's content (trim trailing spaces, ensure newline, basic indent cleanup). Returns formatted result.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "File to format" }
+        },
+        required: ["path"]
+      }
+    }
   }
 ];

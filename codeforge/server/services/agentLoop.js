@@ -206,22 +206,62 @@ export async function runAgentLoop({
     return { messages: messagesToPersist, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
   }
 
+  // helper for rate-limit detection and backoff
+  const isRateLimit = (err) => {
+    const msg = String(err?.message || "").toLowerCase();
+    return err?.status === 429 || msg.includes("429") || msg.includes("rate limit") || msg.includes("too many requests");
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
   while (loopCount < MAX_LOOPS) {
     loopCount++;
 
     let currentText = "";
-    const result = await chatFn({
-      messages,
-      tools: activeTools,
-      model: effectiveModel,
-      signal,
-      onChunk: (chunk) => {
-        if (chunk.type === "content") {
-          currentText += chunk.text;
-          onEvent({ type: "reasoning", text: chunk.text });
+    let result = null;
+    // Retry loop for rate-limit stalls — never abort the whole turn on 429,
+    // just back off, persist what we have, and continue the agent loop.
+    for (let rlAttempt = 0; rlAttempt < 6; rlAttempt++) {
+      try {
+        result = await chatFn({
+          messages,
+          tools: activeTools,
+          model: effectiveModel,
+          signal,
+          onChunk: (chunk) => {
+            if (chunk.type === "content") {
+              currentText += chunk.text;
+              onEvent({ type: "reasoning", text: chunk.text });
+            }
+          }
+        });
+        break;
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        if (isRateLimit(err) && rlAttempt < 5) {
+          const delay = 2000 * Math.pow(1.8, rlAttempt) + Math.floor(Math.random() * 800);
+          const capped = Math.min(delay, 25000);
+          onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay: capped, message: err.message || "Rate limited, retrying…" });
+          // Persist intermediate progress so a later hard-fail does not lose work
+          onEvent({ type: "files", files: fsToArray(fsMap) });
+          // also emit usage so toolbar doesn't jump
+          if (totalUsage.prompt_tokens || totalUsage.completion_tokens) onEvent({ type: "usage", usage: totalUsage });
+          await sleep(capped);
+          continue;
         }
+        // non-rate-limit or exhausted after retries — save progress and finish gracefully instead of crashing the job
+        if (isRateLimit(err)) {
+          onEvent({ type: "error", message: `Превышен лимит запросов (429). Прогресс сохранён — ${fsMap.size} файлов. Напишите «продолжи» чтобы возобновить.` });
+        } else {
+          onEvent({ type: "error", message: err.message || String(err) });
+        }
+        onEvent({ type: "files", files: fsToArray(fsMap) });
+        return await finalizeTurn();
       }
-    });
+    }
+    if (!result) {
+      onEvent({ type: "error", message: "Не удалось получить ответ модели после нескольких попыток (rate limit). Прогресс сохранён, попробуйте продолжить сообщением «продолжи»." });
+      return await finalizeTurn();
+    }
 
     if (result.usage) {
       totalUsage.prompt_tokens += result.usage.prompt_tokens || 0;

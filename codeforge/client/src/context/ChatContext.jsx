@@ -254,6 +254,10 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
       case "usage":
         setUsage((prev) => ({ prompt_tokens: prev.prompt_tokens + (evt.usage?.prompt_tokens || 0), completion_tokens: prev.completion_tokens + (evt.usage?.completion_tokens || 0) }));
         break;
+      case "rate_limit":
+        notify(evt.message || `Пауза ${Math.round((evt.delay || 2000)/1000)}с из-за лимита — продолжаю…`, "info");
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, status: "rate_limited", statusText: `Лимит — пауза ${Math.round((evt.delay || 2000)/1000)}с…` } : m));
+        break;
       case "error":
         notify(evt.message || "Ошибка агента", "error");
         if (evt.message && !/aborted/i.test(evt.message)) clearActiveRun();

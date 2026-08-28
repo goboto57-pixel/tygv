@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2 } from "lucide-react";
+import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3 } from "lucide-react";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import FileTree from "./FileTree.jsx";
@@ -14,11 +14,12 @@ function fileIcon(path) {
 }
 
 export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
-  const { files, activeFile, openFileTab, openFiles, closeFileTab, chatId } = useFiles();
-  const { terminalOpen, setTerminalOpen, terminalLog } = useUI();
+  const { files, activeFile, openFileTab, openFiles, closeFileTab, chatId, setFiles } = useFiles();
+  const { terminalOpen, setTerminalOpen, terminalLog, notify } = useUI();
   const [tab, setTab] = useState("code"); // 'code' | 'preview'
   const [splitView, setSplitView] = useState(false);
   const [splitFile, setSplitFile] = useState(null);
+  const [filter, setFilter] = useState("");
 
   const hasHtml = useMemo(() => files.some((f) => f.path.endsWith(".html")), [files]);
   const hasPackageJson = useMemo(() => files.some((f) => f.path === "package.json"), [files]);
@@ -26,11 +27,45 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
   const activeEntry = files.find((f) => f.path === activeFile);
   const breadcrumbs = useMemo(() => activeFile ? activeFile.split("/").filter(Boolean) : [], [activeFile]);
 
+  const filteredFiles = useMemo(() => {
+    if (!filter.trim()) return files;
+    const q = filter.toLowerCase();
+    return files.filter((f) => f.path.toLowerCase().includes(q));
+  }, [files, filter]);
+
+  const stats = useMemo(() => {
+    const totalBytes = files.reduce((s, f) => s + (f.content?.length || 0), 0);
+    const totalLines = files.reduce((s, f) => s + (f.content?.split("\n").length || 0), 0);
+    return { totalBytes, totalLines };
+  }, [files]);
+
+  const createNewFile = () => {
+    const name = prompt("Имя нового файла (например, src/utils.js):");
+    if (!name) return;
+    const clean = name.replace(/^\/+/, "").trim();
+    if (!clean) return;
+    if (files.some((f) => f.path === clean)) { notify?.("Файл уже существует", "error"); return; }
+    setFiles((prev) => [...prev, { path: clean, content: "" }]);
+    openFileTab(clean);
+    notify?.(`Создан ${clean}`, "success");
+  };
+  const createNewFolder = () => {
+    const name = prompt("Имя папки (например, src/components):");
+    if (!name) return;
+    const clean = name.replace(/^\/+/, "").replace(/\/+$/, "").trim();
+    if (!clean) return;
+    const keep = `${clean}/.keep`;
+    if (files.some((f) => f.path === keep)) { notify?.("Папка уже существует", "info"); return; }
+    setFiles((prev) => [...prev, { path: keep, content: "" }]);
+    notify?.(`Папка ${clean} создана`, "success");
+  };
+
   const body =
     files.length === 0 ? (
       <div className="files-panel files-panel-empty">
         <FolderTree size={28} strokeWidth={1.5} />
         <p>Файлы проекта появятся здесь, как только агент начнёт их создавать.</p>
+        <button className="btn-new-chat" onClick={createNewFile} style={{ marginTop: 12 }}><FilePlus size={14} /> Новый файл</button>
       </div>
     ) : (
       <div className="files-panel">
@@ -56,10 +91,21 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             {isMobile ? <X size={17} /> : <PanelRightClose size={16} />}
           </button>
         </div>
+        <div className="files-toolbar">
+          <div className="files-search">
+            <Search size={13} />
+            <input placeholder="Поиск файлов…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+            {filter && <button className="icon-btn" onClick={() => setFilter("")}><X size={12} /></button>}
+          </div>
+          <div className="files-toolbar-actions">
+            <button className="icon-btn" onClick={createNewFile} title="Новый файл"><FilePlus size={14} /></button>
+            <button className="icon-btn" onClick={createNewFolder} title="Новая папка"><FolderPlus size={14} /></button>
+          </div>
+        </div>
 
         {tab === "code" ? (
           <div className="files-panel-body">
-            <FileTree files={files} activeFile={activeFile} onSelect={(p) => {
+            <FileTree files={filteredFiles} activeFile={activeFile} onSelect={(p) => {
               if (splitView && activeFile && p !== activeFile) setSplitFile(p);
               else openFileTab(p);
             }} />
@@ -128,6 +174,9 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
         ) : (
           hasPackageJson ? <WebContainerPreview files={files} key={chatId} /> : <LivePreview files={files} activeFile={activeFile} />
         )}
+        <div className="files-stats">
+          <BarChart3 size={11} /> {files.length} файлов · {stats.totalLines.toLocaleString("ru-RU")} строк · {(stats.totalBytes/1024).toFixed(1)} KB{filter ? ` · фильтр: ${filteredFiles.length}/${files.length}` : ""}
+        </div>
       </div>
     );
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map } from "lucide-react";
+import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map, Download, AlignLeft } from "lucide-react";
 import DiffViewer from "./DiffViewer.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
@@ -119,10 +119,28 @@ export default function CodeViewer({ path, content, prevContent }) {
   const lintIssues = useMemo(() => lintTextClient(lintTarget), [lintTarget]);
 
   const [showMinimap, setShowMinimap] = useState(false);
+  const [wrap, setWrap] = useState(false);
   const minimapContent = useMemo(() => {
     if (!content) return "";
     return content.slice(0, 2000).replace(/\t/g, "  ");
   }, [content]);
+
+  const handleDownload = useCallback(() => {
+    try {
+      const blob = new Blob([content || ""], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (path || "file.txt").split("/").pop();
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      notify?.(`Скачан ${path}`, "success");
+    } catch (e) {
+      notify?.(`Ошибка скачивания: ${e.message}`, "error");
+    }
+  }, [content, path, notify]);
 
   return (
     <div className="code-viewer">
@@ -172,6 +190,12 @@ export default function CodeViewer({ path, content, prevContent }) {
               </button>
               <button className="code-viewer-copy" onClick={() => setShowMinimap(v=>!v)} title="Minimap">
                 <Maximize2 size={13} />
+              </button>
+              <button className="code-viewer-copy" onClick={() => setWrap(v=>!v)} title={wrap ? "Перенос строк: вкл" : "Перенос строк: выкл"} style={{ color: wrap ? "var(--text-primary)" : undefined }}>
+                <AlignLeft size={13} />
+              </button>
+              <button className="code-viewer-copy" onClick={handleDownload} title="Скачать файл">
+                <Download size={13} />
               </button>
               <button className="code-viewer-copy" onClick={handleCopy}>
                 {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -228,12 +252,16 @@ export default function CodeViewer({ path, content, prevContent }) {
               language={getLanguage(path)}
               style={vscDarkPlus}
               showLineNumbers
+              wrapLines={wrap}
+              wrapLongLines={wrap}
               customStyle={{
                 margin: 0,
                 background: "transparent",
                 fontSize: "13px",
                 padding: "16px",
-                fontFamily: "JetBrains Mono, monospace"
+                fontFamily: "JetBrains Mono, monospace",
+                whiteSpace: wrap ? "pre-wrap" : "pre",
+                wordBreak: wrap ? "break-all" : "normal"
               }}
             >
               {content || ""}

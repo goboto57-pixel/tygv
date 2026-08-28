@@ -9,7 +9,9 @@ export const READ_ONLY_TOOLS = new Set([
   "semantic_search",
   "lint_file",
   "web_fetch",
-  "check_preview"
+  "check_preview",
+  "get_project_stats",
+  "todo_scan"
 ]);
 
 export function splitToolCalls(calls = []) {
