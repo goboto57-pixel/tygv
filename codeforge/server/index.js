@@ -32,15 +32,15 @@ app.use(compression({
 const allowedOrigins = (process.env.CLIENT_ORIGIN || "").split(",").map((v) => v.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: allowedOrigins.length ? allowedOrigins : true,
+    origin: allowedOrigins.length ? allowedOrigins : (process.env.NODE_ENV === "production" ? false : true),
     credentials: allowedOrigins.length > 0,
     methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86400
   })
 );
-app.use(express.json({ limit: "40mb" }));
-app.use(express.urlencoded({ extended: true, limit: "40mb" }));
+app.use(express.json({ limit: "1mb" }));
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
 // Required for @webcontainer/api in the client (SharedArrayBuffer / cross-
 // origin isolation). "credentialless" rather than "require-corp": the latter
@@ -79,6 +79,13 @@ const chatLimiter = rateLimit({
   }
 });
 
+// Request timeout for SSE and large uploads
+app.use((req, res, next) => {
+  req.setTimeout(120000);
+  res.setTimeout(120000);
+  next();
+});
+
 app.use("/api", apiLimiter);
 app.use("/api/chat", chatLimiter);
 
@@ -106,13 +113,16 @@ app.use(express.static(clientDistPath, {
 }));
 
 // SPA fallback: any non-API route returns index.html so client-side routing works.
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/api")) return next();
+// Use /*splat for express@5 compatibility
+app.get("/*splat", (req, res, next) => {
+  if (req.path.startsWith("/api")) return res.status(404).json({ error: "Not found" });
   res.sendFile(path.join(clientDistPath, "index.html"), { etag: true, lastModified: true });
 });
 
 app.use((err, req, res, next) => {
   console.error(err);
+  if (err.type === "entity.too.large") return res.status(413).json({ error: "Payload too large" });
+  if (err.status === 429) return res.status(429).json({ error: "Too many requests" });
   res.status(500).json({ error: "Internal server error" });
 });
 

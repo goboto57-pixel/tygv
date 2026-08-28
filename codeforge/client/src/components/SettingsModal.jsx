@@ -5,8 +5,8 @@ import { useSettings } from "../context/SettingsContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 
 export default function SettingsModal() {
-  const { settingsOpen, setSettingsOpen, settings, updateSettings, MODELS, MODES } = useSettings();
-  const { settingsOpen: uiSettingsOpen, setSettingsOpen: uiSetSettingsOpen } = useUI();
+  const { settings, updateSettings, MODELS, MODES } = useSettings();
+  const { settingsOpen, setSettingsOpen } = useUI();
   const modalRef = useRef(null);
   const previousActiveElement = useRef(null);
 

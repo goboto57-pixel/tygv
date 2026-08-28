@@ -68,7 +68,7 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
 
         <button
           className="icon-btn"
-          onClick={() => exportZip(files, `codeforge-${chatId.slice(0, 8)}`)}
+          onClick={() => exportZip(files, `codeforge-${(chatId || "project").slice(0, 8)}`)}
           title="Скачать проект (.zip)"
           disabled={files.length === 0}
           aria-disabled={files.length === 0}

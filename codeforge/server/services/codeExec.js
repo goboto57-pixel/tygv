@@ -170,6 +170,21 @@ export async function runCommand({ command, fsMap, timeoutMs = DEFAULT_TIMEOUT_M
       `Command '${bin}' is not on the allowed list (${Array.from(ALLOWED_BINARIES).join(", ")}). Refusing to execute.`
     );
   }
+  // Block dangerous flags that allow arbitrary code execution via allowed binaries
+  if (bin === "node" && args.some((a) => ["-e", "--eval", "-p", "--print"].includes(a))) {
+    throw new Error("node -e/-p is not allowed. Use node <file.js> instead.");
+  }
+  if ((bin === "python" || bin === "python3") && args.includes("-c")) {
+    throw new Error("python -c is not allowed. Use python <file.py> instead.");
+  }
+  if (bin === "npx") {
+    // Only allow npx for whitelisted binaries, not arbitrary packages
+    const pkg = args.find((a) => !a.startsWith("-"));
+    const allowedNpx = new Set(["eslint", "tsc", "jest", "vitest", "pytest"]);
+    if (pkg && !allowedNpx.has(pkg) && !ALLOWED_BINARIES.has(pkg)) {
+      throw new Error(`npx package '${pkg}' is not allowed.`);
+    }
+  }
 
   const clampedTimeout = Math.min(Math.max(1000, timeoutMs), MAX_TIMEOUT_MS);
   const workDir = await mkdtemp(path.join(tmpdir(), "codeforge-exec-"));
@@ -189,19 +204,23 @@ export async function runCommand({ command, fsMap, timeoutMs = DEFAULT_TIMEOUT_M
       let truncated = false;
       let timedOut = false;
 
+      // Use a clean env without secrets - don't leak host API keys into user code
+      const cleanEnv = {
+        PATH: process.env.PATH,
+        HOME: process.env.HOME,
+        TMPDIR: process.env.TMPDIR,
+        NODE_ENV: "production",
+        CI: "true",
+        npm_config_yes: "true"
+      };
+      // allow only safe env vars
+      for (const k of ["LANG", "LC_ALL", "PYTHONPATH", "NODE_PATH"]) {
+        if (process.env[k]) cleanEnv[k] = process.env[k];
+      }
       const child = spawn(bin, args, {
         cwd,
         shell: false, // critical: never let the OS shell interpret the string
-        env: {
-          ...process.env,
-          // Strip anything that could leak secrets from the host API process
-          // into a user-triggered command run.
-          MISTRAL_API_KEY: undefined,
-          GEMINI_API_KEY: undefined,
-          CLOUDINARY_API_SECRET: undefined,
-          CI: "true",
-          npm_config_yes: "true" // avoid npx interactive install prompts hanging the process
-        }
+        env: cleanEnv
       });
 
       const timer = setTimeout(() => {

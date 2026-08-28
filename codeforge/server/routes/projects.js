@@ -12,18 +12,23 @@ import { withChatWriteLock } from "../services/chatWriteLock.js";
 router.get("/chats", async (req, res) => {
   try {
     const resources = await listJson("chat", 100);
-    const items = await Promise.all(
+    const results = await Promise.allSettled(
       resources.map(async (r) => {
         const id = r.public_id.split("/").pop();
-        const data = await loadJson(id, "chat");
-        return {
-          id,
-          title: data?.title || data?.messages?.[0]?.content?.slice(0, 60) || "Untitled chat",
-          updatedAt: data?.updatedAt || r.created_at,
-          messageCount: data?.messages?.length || 0
-        };
+        try {
+          const data = await loadJson(id, "chat");
+          return {
+            id,
+            title: data?.title || data?.messages?.[0]?.content?.slice(0, 60) || "Untitled chat",
+            updatedAt: data?.updatedAt || r.created_at,
+            messageCount: data?.messages?.length || 0
+          };
+        } catch {
+          return null;
+        }
       })
     );
+    const items = results.map((r) => r.value).filter(Boolean);
     items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
     res.json({ chats: items });
   } catch (err) {
@@ -43,8 +48,23 @@ router.get("/chats/:id", async (req, res) => {
 
 router.post("/chats", async (req, res) => {
   try {
-    const id = req.body.id || uuid();
-    await saveJson(id, { ...req.body, id, updatedAt: new Date().toISOString() }, "chat");
+    let id = req.body.id;
+    // Validate custom ID or generate
+    if (id) {
+      if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{4,64}$/.test(id)) {
+        return res.status(400).json({ error: "invalid id format" });
+      }
+      // Prevent overwriting existing chat without explicit intent
+      const existing = await loadJson(id, "chat");
+      if (existing) return res.status(409).json({ error: "chat already exists" });
+    } else {
+      id = uuid();
+    }
+    const safeBody = {};
+    if (typeof req.body.title === "string") safeBody.title = req.body.title.slice(0, 120);
+    if (Array.isArray(req.body.messages)) safeBody.messages = req.body.messages.slice(0, 200);
+    if (Array.isArray(req.body.files)) safeBody.files = req.body.files.slice(0, 200);
+    await saveJson(id, { ...safeBody, id, updatedAt: new Date().toISOString() }, "chat");
     res.json({ id });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -69,6 +89,11 @@ router.patch("/chats/:id/files", async (req, res) => {
     if (!files || !Array.isArray(files)) {
       return res.status(400).json({ error: "files array required" });
     }
+    if (files.length > 200) return res.status(400).json({ error: "too many files (max 200)" });
+    for (const f of files) {
+      if (!f.path || typeof f.path !== "string" || f.path.length > 300) return res.status(400).json({ error: "invalid file path" });
+      if (f.content && typeof f.content === "string" && f.content.length > 1024 * 1024) return res.status(400).json({ error: "file too large" });
+    }
     await withChatWriteLock(req.params.id, async () => {
       const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
       await saveJson(
@@ -83,6 +108,20 @@ router.patch("/chats/:id/files", async (req, res) => {
   }
 });
 
+// also accept POST for sendBeacon fallback (beacon can only do POST)
+router.post("/chats/:id/files", async (req, res) => {
+  try {
+    const { files } = req.body;
+    if (!files || !Array.isArray(files)) return res.status(400).json({ error: "files array required" });
+    if (files.length > 200) return res.status(400).json({ error: "too many files" });
+    await withChatWriteLock(req.params.id, async () => {
+      const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
+      await saveJson(req.params.id, { ...existing, id: req.params.id, files, updatedAt: new Date().toISOString() }, "chat");
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
 // Persist manual message edits (e.g. user editing a prior prompt) without
 // touching file state. Used for "edit message" flow in the UI.
 router.patch("/chats/:id/messages", async (req, res) => {
@@ -91,10 +130,11 @@ router.patch("/chats/:id/messages", async (req, res) => {
     if (!messages || !Array.isArray(messages)) {
       return res.status(400).json({ error: "messages array required" });
     }
+    if (messages.length > 200) return res.status(400).json({ error: "too many messages" });
     await withChatWriteLock(req.params.id, async () => {
       const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
       const next = { ...existing, id: req.params.id, messages };
-      if (Array.isArray(req.body.uiMessages)) next.uiMessages = req.body.uiMessages;
+      if (Array.isArray(req.body.uiMessages)) next.uiMessages = req.body.uiMessages.slice(0, 200);
       if (typeof title === "string" && title.trim()) next.title = title.trim().slice(0, 120);
       await saveJson(req.params.id, { ...next, updatedAt: new Date().toISOString() }, "chat");
     });
@@ -102,6 +142,20 @@ router.patch("/chats/:id/messages", async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+router.post("/chats/:id/messages", async (req, res) => {
+  try {
+    const { messages, title } = req.body;
+    if (!messages || !Array.isArray(messages)) return res.status(400).json({ error: "messages array required" });
+    await withChatWriteLock(req.params.id, async () => {
+      const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
+      const next = { ...existing, id: req.params.id, messages };
+      if (Array.isArray(req.body.uiMessages)) next.uiMessages = req.body.uiMessages.slice(0, 200);
+      if (typeof title === "string" && title.trim()) next.title = title.trim().slice(0, 120);
+      await saveJson(req.params.id, { ...next, updatedAt: new Date().toISOString() }, "chat");
+    });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Persist title and/or other lightweight session metadata without replacing history/files.
@@ -216,13 +270,20 @@ router.post("/export-zip", async (req, res) => {
     if (!files || !Array.isArray(files)) {
       return res.status(400).json({ error: "files array required" });
     }
+    if (files.length > 500) return res.status(400).json({ error: "too many files (max 500)" });
+    let totalSize = 0;
+    for (const f of files) totalSize += String(f?.content || "").length;
+    if (totalSize > 20 * 1024 * 1024) return res.status(400).json({ error: "project too large (max 20MB)" });
 
+    const archive = archiver("zip", { zlib: { level: 6 } });
+    archive.on("error", (err) => {
+      if (!res.headersSent) res.status(500).json({ error: err.message });
+      else res.end();
+    });
     res.writeHead(200, {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${(projectName || "codeforge-project").replace(/[^a-zA-Z0-9._-]/g, "_")}.zip"`
     });
-
-    const archive = archiver("zip", { zlib: { level: 9 } });
     archive.pipe(res);
 
     for (const file of files) {
@@ -234,7 +295,8 @@ router.post("/export-zip", async (req, res) => {
 
     await archive.finalize();
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!res.headersSent) res.status(500).json({ error: err.message });
+    else res.end();
   }
 });
 

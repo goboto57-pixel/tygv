@@ -12,7 +12,7 @@ export function UIProvider({ children }) {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   const notify = useCallback((text, kind = "info") => {
-    setToast({ text, kind, id: Date.now() });
+    setToast({ text, kind, id: Date.now() + Math.floor(Math.random() * 1000) });
   }, []);
 
   const clearTerminal = useCallback(() => {
@@ -20,7 +20,7 @@ export function UIProvider({ children }) {
   }, []);
 
   const addTerminalEntry = useCallback((entry) => {
-    setTerminalLog((prev) => [...prev, entry]);
+    setTerminalLog((prev) => [...prev, entry].slice(-500));
   }, []);
 
   const value = useMemo(() => ({

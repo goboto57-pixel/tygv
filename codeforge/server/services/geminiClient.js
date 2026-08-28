@@ -43,11 +43,19 @@ function toGeminiContents(messages) {
 
   for (const msg of messages) {
     if (msg.role === "system") {
-      systemInstruction = { parts: [{ text: msg.content }] };
+      const text = Array.isArray(msg.content) ? msg.content.map((c) => c.text || "").join("\n") : msg.content;
+      if (systemInstruction) {
+        // Concatenate multiple system messages instead of overwriting
+        systemInstruction.parts[0].text += "\n\n" + text;
+      } else {
+        systemInstruction = { parts: [{ text }] };
+      }
       continue;
     }
     if (msg.role === "user") {
-      contents.push({ role: "user", parts: [{ text: msg.content ?? "" }] });
+      // Handle multimodal content (text + image_url parts) - extract text only for Gemini
+      const text = Array.isArray(msg.content) ? msg.content.filter((c) => c.type === "text").map((c) => c.text).join("\n") : (msg.content ?? "");
+      contents.push({ role: "user", parts: [{ text }] });
       continue;
     }
     if (msg.role === "assistant") {
@@ -97,11 +105,12 @@ export async function streamGeminiChat({ messages, tools, model, onChunk, signal
   const resolvedModel = model && ALLOWED_GEMINI_MODELS.has(model) ? model : DEFAULT_GEMINI_MODEL;
 
   const { systemInstruction, contents } = toGeminiContents(messages);
+  const isThinkingModel = resolvedModel.includes("3.5") || resolvedModel.includes("3.1") || resolvedModel.includes("2.5");
   const body = {
     contents,
     generationConfig: {
       maxOutputTokens: 8000,
-      thinkingConfig: { thinkingLevel: ["low", "medium", "high"].includes(thinkingLevel) ? thinkingLevel : DEFAULT_THINKING_LEVEL }
+      ...(isThinkingModel ? { thinkingConfig: { thinkingLevel: ["low", "medium", "high"].includes(thinkingLevel) ? thinkingLevel : DEFAULT_THINKING_LEVEL } } : {})
     }
   };
   if (systemInstruction) body.systemInstruction = systemInstruction;
@@ -176,51 +185,51 @@ export async function streamGeminiChat({ messages, tools, model, onChunk, signal
     for await (const chunk of response.body) {
       resetTimeout();
       buffer += decoder.decode(chunk, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith("data:")) continue;
-      const data = trimmed.replace(/^data:\s*/, "");
-      if (!data || data === "[DONE]") continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data:")) continue;
+        const data = trimmed.replace(/^data:\s*/, "");
+        if (!data || data === "[DONE]") continue;
 
-      let parsed;
-      try {
-        parsed = JSON.parse(data);
-      } catch {
-        continue;
-      }
-
-      const cand = parsed.candidates?.[0];
-      if (!cand) continue;
-      if (cand.finishReason) finishReason = cand.finishReason;
-
-      for (const part of cand.content?.parts || []) {
-        if (part.text) {
-          accumulatedContent += part.text;
-          onChunk({ type: "content", text: part.text });
+        let parsed;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
         }
-        if (part.functionCall) {
-          accumulatedCalls.push({
-            id: part.functionCall.id || `call_${accumulatedCalls.length}`,
-            type: "function",
-            function: {
-              name: part.functionCall.name,
-              arguments: JSON.stringify(part.functionCall.args || {})
-            }
-          });
-        }
-      }
 
-      if (parsed.usageMetadata) {
-        usage = {
-          prompt_tokens: parsed.usageMetadata.promptTokenCount || 0,
-          completion_tokens: parsed.usageMetadata.candidatesTokenCount || 0
-        };
+        const cand = parsed.candidates?.[0];
+        if (!cand) continue;
+        if (cand.finishReason) finishReason = cand.finishReason;
+
+        for (const part of cand.content?.parts || []) {
+          if (part.text) {
+            accumulatedContent += part.text;
+            onChunk({ type: "content", text: part.text });
+          }
+          if (part.functionCall) {
+            accumulatedCalls.push({
+              id: part.functionCall.id || `call_${accumulatedCalls.length}`,
+              type: "function",
+              function: {
+                name: part.functionCall.name,
+                arguments: JSON.stringify(part.functionCall.args || {})
+              }
+            });
+          }
+        }
+
+        if (parsed.usageMetadata) {
+          usage = {
+            prompt_tokens: parsed.usageMetadata.promptTokenCount || 0,
+            completion_tokens: parsed.usageMetadata.candidatesTokenCount || 0
+          };
+        }
       }
     }
-
     // Some proxies/providers may close the stream without a trailing newline.
     // Process the last buffered SSE frame instead of silently dropping it.
     if (buffer.trim()) {
@@ -237,8 +246,6 @@ export async function streamGeminiChat({ messages, tools, model, onChunk, signal
         } catch {}
       }
     }
-  }
-
   } finally {
     clearTimeout(timeoutId);
   }
@@ -261,6 +268,7 @@ export async function geminiQuickAnswer({ prompt, model = "gemini-3.6-flash", th
   const resolvedModel = ALLOWED_GEMINI_MODELS.has(model) ? model : "gemini-3.6-flash";
   const url = `${GEMINI_API_BASE}/${resolvedModel}:generateContent`;
 
+  const isQuickThinking = resolvedModel.includes("3.5") || resolvedModel.includes("3.1") || resolvedModel.includes("2.5");
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
@@ -268,7 +276,7 @@ export async function geminiQuickAnswer({ prompt, model = "gemini-3.6-flash", th
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: {
         maxOutputTokens: 1200,
-        thinkingConfig: { thinkingLevel: ["low", "medium", "high"].includes(thinkingLevel) ? thinkingLevel : "low" }
+        ...(isQuickThinking ? { thinkingConfig: { thinkingLevel: ["low", "medium", "high"].includes(thinkingLevel) ? thinkingLevel : "low" } } : {})
       }
     })
   });

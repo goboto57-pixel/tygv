@@ -53,6 +53,8 @@ export function SessionsProvider({ children, notify }) {
       const chats = Array.isArray(data.chats) ? data.chats : [];
       setChatList(chats);
 
+      let nextOpen = null;
+      let nextActive = null;
       setOpenSessions((prev) => {
         const known = new Map(chats.map((c) => [c.id, c]));
         const storedActive = (() => { try { return localStorage.getItem(ACTIVE_CHAT_KEY); } catch { return null; } })();
@@ -61,12 +63,15 @@ export function SessionsProvider({ children, notify }) {
         const localActive = merged.find((s) => s.id === currentActive);
         const activeStillExists = currentActive && (known.has(currentActive) || localActive?.localOnly === true);
         if (!activeStillExists && chats[0]?.id) {
-          setActiveChatId(chats[0].id);
-          return [{ id: chats[0].id, title: chats[0].title }, ...merged.filter((s) => s.id !== chats[0].id)].slice(-12);
+          nextActive = chats[0].id;
+          nextOpen = [{ id: chats[0].id, title: chats[0].title }, ...merged.filter((s) => s.id !== chats[0].id)].slice(-12);
+          return nextOpen;
         }
-        if (currentActive && !activeChatId) setActiveChatId(currentActive);
+        if (currentActive && !activeChatId) nextActive = currentActive;
+        nextOpen = merged;
         return merged;
       });
+      if (nextActive) setActiveChatId(nextActive);
       return chats;
     } catch (e) {
       // A cached/local session is still usable when the API is temporarily unavailable.
@@ -157,10 +162,11 @@ export function SessionsProvider({ children, notify }) {
       // ignore
     }
     try {
+      const safePayload = { id: session.id, title: session.title, messages: [], files: [] };
       const res = await fetch(`${API_BASE}/projects/chats`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(session),
+        body: JSON.stringify(safePayload),
       });
       if (res.ok) {
         setActiveSession((prev) => prev ? { ...prev, localOnly: false } : prev);

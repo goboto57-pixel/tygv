@@ -3,7 +3,7 @@ import multer from "multer";
 import { uploadRawFile } from "../services/cloudinaryService.js";
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 10 } });
 
 const TEXT_EXTENSIONS = [
   ".js", ".jsx", ".ts", ".tsx", ".py", ".java", ".go", ".rs", ".rb", ".php",
@@ -12,23 +12,45 @@ const TEXT_EXTENSIONS = [
 ];
 
 function isTextFile(name) {
-  return TEXT_EXTENSIONS.some((ext) => name.toLowerCase().endsWith(ext));
+  // also treat files without extension but known text names as text
+  const lower = name.toLowerCase();
+  if (TEXT_EXTENSIONS.some((ext) => lower.endsWith(ext))) return true;
+  const textNames = new Set(["dockerfile", "makefile", "procfile", "readme", "license"]);
+  const base = lower.split("/").pop().split(".")[0];
+  if (textNames.has(base)) return true;
+  // if no extension, try to detect as text via buffer check done elsewhere, but default to text for extensionless
+  if (!lower.includes(".") && lower.length < 32) return true;
+  return false;
 }
 
-router.post("/upload", upload.array("files", 20), async (req, res) => {
+function sanitizePath(name) {
+  // remove path traversal, null bytes, leading slashes
+  let p = name.replace(/\0/g, "").replace(/\\/g, "/");
+  p = p.replace(/\.\.\//g, "").replace(/\.\./g, "");
+  p = p.replace(/^\/+/, "");
+  p = p.replace(/[^a-zA-Z0-9._\-\/]/g, "_");
+  if (!p || p.length > 200) p = p.slice(0, 200) || "unnamed";
+  return p;
+}
+
+router.post("/upload", upload.array("files", 10), async (req, res) => {
   try {
     const results = [];
     for (const file of req.files || []) {
-      if (isTextFile(file.originalname)) {
+      const safePath = sanitizePath(file.originalname);
+      if (isTextFile(safePath)) {
+        // limit content to 1MB per file to avoid OOM
+        const str = file.buffer.toString("utf-8");
+        const content = str.length > 1024 * 1024 ? str.slice(0, 1024 * 1024) + "\n[truncated]" : str;
         results.push({
-          path: file.originalname,
-          content: file.buffer.toString("utf-8"),
+          path: safePath,
+          content,
           isText: true
         });
       } else {
-        const { url } = await uploadRawFile(file.buffer, file.originalname);
+        const { url } = await uploadRawFile(file.buffer, safePath);
         results.push({
-          path: file.originalname,
+          path: safePath,
           url,
           isText: false
         });

@@ -44,6 +44,29 @@ router.post("/stream", async (req, res) => {
   if (!history || !Array.isArray(history)) {
     return res.status(400).json({ error: "history array is required" });
   }
+  if (history.length > 200) {
+    return res.status(400).json({ error: "history too long (max 200 messages)" });
+  }
+  if (chatId && typeof chatId !== "string") {
+    return res.status(400).json({ error: "chatId must be string" });
+  }
+  if (chatId && !/^[a-zA-Z0-9_-]{4,64}$/.test(chatId)) {
+    return res.status(400).json({ error: "invalid chatId format" });
+  }
+  if (Array.isArray(files) && files.length > 200) {
+    return res.status(400).json({ error: "too many files (max 200)" });
+  }
+  if (Array.isArray(images) && images.length > 4) {
+    return res.status(400).json({ error: "too many images (max 4)" });
+  }
+  // Validate image sizes (base64)
+  if (Array.isArray(images)) {
+    for (const img of images) {
+      if (img?.dataUrl && img.dataUrl.length > 8 * 1024 * 1024) {
+        return res.status(400).json({ error: "image too large (max 8MB)" });
+      }
+    }
+  }
 
   res.writeHead(200, {
     "Content-Type": "text/event-stream",
@@ -53,8 +76,10 @@ router.post("/stream", async (req, res) => {
   });
 
   const send = (event) => {
-    if (res.writableEnded) return;
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
+    if (res.writableEnded || !res.writable) return;
+    // Sanitize event to prevent SSE frame injection via newlines in payload
+    const payload = JSON.stringify(event).replace(/\n/g, "\\n");
+    res.write(`data: ${payload}\n\n`);
     if (typeof res.flush === "function") res.flush();
   };
 
@@ -111,7 +136,9 @@ router.post("/stream", async (req, res) => {
 
     send({ type: "done" });
   } catch (err) {
-    send({ type: "error", message: err.message });
+    // Don't leak internal details
+    const safeMsg = err.message?.includes("MISTRAL_API_KEY") ? "Server configuration error" : err.message;
+    send({ type: "error", message: safeMsg });
   } finally {
     res.end();
   }

@@ -56,6 +56,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
   const [sessionReport, setSessionReport] = useState(null);
   const [memoryEntries, setMemoryEntries] = useState([]);
   const abortRef = useRef(null);
+  const isStreamingRef = useRef(false);
   const persistTimerRef = useRef(null);
   const lastSavedPayloadRef = useRef("");
   const messagesRef = useRef(messages);
@@ -129,12 +130,20 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         localStorage.setItem(`codeforge_chat_${currentChatId}`, JSON.stringify({ id: currentChatId, title, uiMessages, files: filesRef.current }));
       } catch {}
       try {
-        const body = new Blob([JSON.stringify(payload)], { type: "application/json" });
-        navigator.sendBeacon(`${API_BASE}/projects/chats/${encodeURIComponent(currentChatId)}/messages`, body);
+        fetch(`${API_BASE}/projects/chats/${encodeURIComponent(currentChatId)}/messages`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          keepalive: true
+        }).catch(() => {});
       } catch {}
     };
     window.addEventListener("pagehide", flushOnHide);
-    return () => window.removeEventListener("pagehide", flushOnHide);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushOnHide(); });
+    return () => {
+      window.removeEventListener("pagehide", flushOnHide);
+      document.removeEventListener("visibilitychange", flushOnHide);
+    };
   }, []);
 
   useEffect(() => () => {
@@ -144,7 +153,8 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
   const sendMessage = useCallback(async (text, images) => {
     const hasImages = Array.isArray(images) && images.length > 0;
     if (!text.trim() && !hasImages) return;
-    if (isStreaming) return;
+    if (isStreamingRef.current) return;
+    isStreamingRef.current = true;
 
     const userMsg = { id: uuid(), role: "user", content: text, images: hasImages ? images : undefined };
     const nextHistory = [...messages, userMsg];
@@ -214,6 +224,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
       }
     } finally {
       abortRef.current = null;
+      isStreamingRef.current = false;
       setIsStreaming(false);
       setTimeout(() => persistNow(messagesRef.current), 0);
     }
@@ -336,6 +347,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
+    isStreamingRef.current = false;
     setIsStreaming(false);
   }, []);
 

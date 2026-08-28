@@ -19,7 +19,7 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
     setFilesState(next);
     setOpenFiles((prev) => prev.filter((p) => next.some((f) => f.path === p)));
     setActiveFile((prev) => next.some((f) => f.path === prev) ? prev : next[0]?.path || null);
-  }, [initialFiles]);
+  }, [initialFiles, chatId, sessionLoaded]);
 
   const setFiles = useCallback((updater) => {
     setFilesState((prev) => typeof updater === "function" ? updater(prev) : (updater || []));
@@ -64,12 +64,31 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
       if (!chatId || !sessionLoaded) return;
       try { localStorage.setItem(`codeforge_files_${chatId}`, JSON.stringify(files)); } catch {}
       try {
-        const body = new Blob([JSON.stringify({ files })], { type: "application/json" });
-        navigator.sendBeacon(`${API_BASE}/projects/chats/${encodeURIComponent(chatId)}/files`, body);
+        const payload = JSON.stringify({ files });
+        // sendBeacon only does POST, so use fetch keepalive with PATCH; fallback to beacon if needed
+        if (navigator.sendBeacon) {
+          // try beacon with POST-compatible endpoint (server now accepts POST too), but prefer fetch keepalive
+          const ok = false; // force fetch keepalive for correct PATCH semantics
+          if (ok) {
+            const body = new Blob([payload], { type: "application/json" });
+            navigator.sendBeacon(`${API_BASE}/projects/chats/${encodeURIComponent(chatId)}/files`, body);
+          }
+        }
+        // keepalive fetch supports PATCH correctly on pagehide
+        fetch(`${API_BASE}/projects/chats/${encodeURIComponent(chatId)}/files`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: payload,
+          keepalive: true
+        }).catch(() => {});
       } catch {}
     };
     window.addEventListener("pagehide", flushOnHide);
-    return () => window.removeEventListener("pagehide", flushOnHide);
+    document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushOnHide(); });
+    return () => {
+      window.removeEventListener("pagehide", flushOnHide);
+      document.removeEventListener("visibilitychange", flushOnHide);
+    };
   }, [chatId, files, sessionLoaded]);
 
   const openFileTab = useCallback((path) => {

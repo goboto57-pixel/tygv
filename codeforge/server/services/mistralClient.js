@@ -173,7 +173,7 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
         usage = parsed.usage;
       }
     }
-
+  }
     // Do not lose the last SSE frame when the provider closes without a final newline.
     if (buffer.trim()) {
       const trimmed = buffer.trim();
@@ -196,7 +196,6 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
         } catch {}
       }
     }
-  }
   } finally {
     clearTimeout(timeoutId);
   }

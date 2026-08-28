@@ -4,6 +4,7 @@ import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle } from "lucide-react";
 import DiffViewer from "./DiffViewer.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
+import { useUI } from "../context/UIContext.jsx";
 import { lintTextClient } from "../utils/lintClient.js";
 
 function getLanguage(path) {
@@ -19,7 +20,8 @@ function getLanguage(path) {
 }
 
 export default function CodeViewer({ path, content, prevContent }) {
-  const { updateFileContent, notify } = useFiles();
+  const { updateFileContent } = useFiles();
+  const { notify } = useUI();
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState("code");
   const [editing, setEditing] = useState(false);
@@ -69,10 +71,20 @@ export default function CodeViewer({ path, content, prevContent }) {
     return <div className="code-viewer code-viewer-empty">Выберите файл слева</div>;
   }
 
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(content);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const handleCopy = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(content || "");
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // fallback for non-secure contexts
+      const ta = document.createElement("textarea");
+      ta.value = content || "";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch {}
+      ta.remove();
+    }
   }, [content]);
 
   const startEdit = useCallback(() => {

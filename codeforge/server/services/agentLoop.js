@@ -195,7 +195,9 @@ export async function runAgentLoop({
 
     onEvent({ type: "usage", usage: totalUsage });
     onEvent({ type: "files", files: fsToArray(fsMap) });
-    return { messages, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
+    // Strip system message before persisting - don't store system prompt in DB
+    const messagesToPersist = messages.filter((m) => m.role !== "system");
+    return { messages: messagesToPersist, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
   }
 
   while (loopCount < MAX_LOOPS) {
