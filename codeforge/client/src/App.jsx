@@ -46,6 +46,9 @@ function Shell() {
   }, []);
 
   const onKey = useCallback((e) => {
+    const target = e.target;
+    const isInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable;
+    if (isInput && !(e.metaKey || e.ctrlKey)) return;
     const modifier = e.metaKey || e.ctrlKey;
     if (modifier && e.key.toLowerCase() === "b") { e.preventDefault(); setLeftSidebarOpen((v) => !v); }
     if (modifier && e.key.toLowerCase() === "j") { e.preventDefault(); setRightPanelOpen((v) => !v); }

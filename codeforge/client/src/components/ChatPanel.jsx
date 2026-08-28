@@ -7,24 +7,27 @@ import EmptyState from "./EmptyState.jsx";
 
 export default function ChatPanel() {
   const { messages, isStreaming } = useChat();
-  const { terminalOpen, setTerminalOpen } = useUI();
   const scrollRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const rafRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-    }
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      if (scrollRef.current) {
+        scrollRef.current.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "auto" });
+      }
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+    });
   }, []);
 
   useEffect(() => {
-    scrollToBottom();
+    // Throttle scroll during streaming to avoid jank
+    const t = setTimeout(scrollToBottom, 100);
+    return () => clearTimeout(t);
   }, [messages, isStreaming, scrollToBottom]);
 
-  // Scroll to bottom when new message arrives
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
 
   return (
     <div className="chat-panel" role="log" aria-live="polite" aria-label="Chat history">
