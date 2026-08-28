@@ -107,6 +107,16 @@ app.use("/api/chat", chatLimiter);
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", model: process.env.MISTRAL_MODEL || "codestral-latest" });
 });
+app.get("/api/metrics", (req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    status: "ok",
+    uptime: Math.round(process.uptime()),
+    memory: { rss: Math.round(mem.rss / 1024 / 1024) + "MB", heapUsed: Math.round(mem.heapUsed / 1024 / 1024) + "MB" },
+    model: process.env.MISTRAL_MODEL || "codestral-latest",
+    time: new Date().toISOString()
+  });
+});
 
 app.use("/api/chat", chatRoutes);
 app.use("/api/files", fileRoutes);

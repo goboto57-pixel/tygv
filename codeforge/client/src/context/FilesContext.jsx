@@ -7,6 +7,7 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
   const [files, setFilesState] = useState(() => (Array.isArray(initialFiles) ? initialFiles : []));
   const [activeFile, setActiveFile] = useState(null);
   const [openFiles, setOpenFiles] = useState([]);
+  const [fileHistory, setFileHistory] = useState(() => new Map()); // path -> string[] last 10 versions
   const prevChatIdRef = React.useRef(chatId);
   const initializedRef = React.useRef(false);
 
@@ -119,7 +120,18 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
   }, [activeFile]);
 
   const updateFileContent = useCallback((path, content) => {
-    setFiles((prev) => prev.map((f) => f.path === path ? { ...f, content } : f));
+    setFiles((prev) => {
+      const cur = prev.find((f) => f.path === path)?.content;
+      if (cur !== undefined && cur !== content) {
+        setFileHistory((h) => {
+          const nh = new Map(h);
+          const arr = nh.get(path) || [];
+          nh.set(path, [...arr.slice(-9), cur]);
+          return nh;
+        });
+      }
+      return prev.map((f) => f.path === path ? { ...f, content } : f);
+    });
   }, [setFiles]);
 
   const uploadFiles = useCallback(async (fileList) => {
@@ -152,8 +164,8 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
 
   const value = useMemo(() => ({
     files, activeFile, setActiveFile, openFiles, openFileTab, closeFileTab,
-    updateFileContent, uploadFiles, replaceFiles, setFiles, chatId
-  }), [files, activeFile, openFiles, openFileTab, closeFileTab, updateFileContent, uploadFiles, replaceFiles, setFiles, chatId]);
+    updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory
+  }), [files, activeFile, openFiles, openFileTab, closeFileTab, updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory]);
 
   return <FilesContext.Provider value={value}>{children}</FilesContext.Provider>;
 }

@@ -234,6 +234,13 @@ export function SessionsProvider({ children, notify }) {
     }
   }, [activeChatId, notify]);
 
+  // Auto snapshot every 10 messages
+  useEffect(() => {
+    const len = activeSession?.messages?.length || 0;
+    if (len < 10 || len % 10 !== 0) return;
+    void takeSnapshot(`Авто ${new Date().toLocaleTimeString()}`, activeSession?.files || []);
+  }, [activeSession?.messages?.length, activeSession?.files, takeSnapshot]);
+
   const loadSnapshots = useCallback(async () => {
     if (!activeChatId) return [];
     try {

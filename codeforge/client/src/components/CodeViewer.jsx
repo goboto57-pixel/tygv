@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map, Download, AlignLeft } from "lucide-react";
+import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map, Download, AlignLeft, Search } from "lucide-react";
 import DiffViewer from "./DiffViewer.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
@@ -120,6 +120,7 @@ export default function CodeViewer({ path, content, prevContent }) {
 
   const [showMinimap, setShowMinimap] = useState(false);
   const [wrap, setWrap] = useState(false);
+  const [fileSearch, setFileSearch] = useState("");
   const minimapContent = useMemo(() => {
     if (!content) return "";
     return content.slice(0, 2000).replace(/\t/g, "  ");
@@ -153,6 +154,12 @@ export default function CodeViewer({ path, content, prevContent }) {
               {lintIssues.length}
             </span>
           )}
+          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "var(--bg-2)", border: "1px solid var(--border-subtle)", borderRadius: 6, padding: "2px 6px" }}>
+            <Search size={12} />
+            <input placeholder="Поиск" value={fileSearch} onChange={(e) => setFileSearch(e.target.value)} style={{ background: "transparent", border: 0, outline: "none", color: "var(--text-primary)", fontSize: "11px", width: 90 }} />
+            {fileSearch && <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>{(content.match(new RegExp(fileSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")) || []).length}</span>}
+            {fileSearch && <button className="icon-btn" onClick={() => setFileSearch("")} style={{ padding: 2 }}><XIcon size={10} /></button>}
+          </div>
           {editing ? (
             <>
               <span className={`code-viewer-save-status code-viewer-save-status-${saveState}`}>
