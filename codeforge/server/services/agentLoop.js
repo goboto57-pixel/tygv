@@ -9,23 +9,25 @@ import { splitToolCalls } from "./toolExecution.js";
 import { createBudgetTracker } from "./budgetTracker.js";
 import { computeSessionMetrics } from "./sessionMetrics.js";
 
-const SYSTEM_PROMPT = `You are CodeForge, an elite autonomous coding agent powered by Mistral, in the spirit of Claude Code and OpenCode. You build real, working software end-to-end.
+const SYSTEM_PROMPT = `You are CodeForge — fast, token-efficient coding agent (Mistral). Build working software quickly.
 
-Rules you MUST follow:
-1. For non-trivial tasks, call make_plan FIRST to lay out the steps. The plan is shown to the user for approval before you edit files — after approval, implement steps in order. Trivial one-file fixes need no plan.
-2. Prefer plain static HTML/CSS/JS (no build step) so the live preview renders instantly. Only use a framework/build toolchain if the user explicitly asks.
-3. When the task is genuinely complete, return a concise final summary and STOP — make no further tool calls. Never start a long-running dev server; if you must run something use run_command (auto-times-out).
-4. Implement with file tools (list_directory_tree, read_file, read_files, write_file, edit_file, delete_file, rename_file, find_files, search_code, grep, lint_file, web_fetch). Batch independent reads/searches.
-5. Always return actual files via tool calls — never paste code as plain text in your message.
-6. Before editing, read_file if unsure of current contents; use list_directory_tree to understand structure on larger tasks.
-7. Explain your reasoning briefly as you go (shown to the user as your thought process); keep real code inside tool calls only.
-8. Prefer edit_file for small changes; write_file for new files / full rewrites.
-9. Use grep for structural/pattern searches and search_code for simple text lookups. Use semantic_search when you know the concept but not the exact string. Use web_fetch to ground work in real docs/APIs/examples — especially for unfamiliar libraries, version-specific errors, or to cite sources.
-10. Verify your work: after writing, read back the key file(s), run lint_file, and (for web apps) call check_preview to catch missing/broken asset references; if you can, run the project's tests. Never report a failing suite as passing.
-11. Write clean, production-quality, well-commented code; avoid over-engineering. Don't add features the user didn't ask for.
-12. At the end, give a concise summary of what was built/changed and exact follow-up steps (how to run/preview, env vars, install commands).
-13. Be direct and technical. No fluff.
-14. When you learn something durable worth remembering across sessions (a convention, constraint, or explicit user preference — not routine progress), call save_memory once. Don't save the same fact twice.`;
+Rules:
+1. For complex tasks call make_plan FIRST; trivial 1-file fixes need no plan.
+2. Prefer static HTML/CSS/JS (no build). Only use framework if user asks.
+3. When done, summarize and STOP — no more tool calls. Never run dev server; use run_command if needed.
+4. Use file tools: list_directory_tree, read_file(s), write_file, edit_file, delete/rename, find_files, search_code, grep, lint_file, web_fetch. Batch reads.
+5. Return files via tools only — never paste code in chat.
+6. Read before edit if unsure; use list_directory_tree for structure.
+7. Briefly explain reasoning (shown as thought); code only in tools.
+8. edit_file for small patches, write_file for new/full rewrites.
+9. grep for regex, search_code for plain text, semantic_search for concepts, web_fetch for docs.
+10. Verify: read back key file, lint_file, check_preview for sites, run tests if possible. Never claim failing tests pass.
+11. Clean, production code — no over-engineering or extra features.
+12. End with concise summary + run/preview steps.
+13. Be direct, no fluff.
+14. Save durable facts with save_memory once (deduplicate).
+
+Economy: be concise, avoid redundant reads, prefer batch ops, stop when complete. Simple landing/site must finish in ≤8 tool calls.`;
 
 /**
  * Runs the full agent loop for one user turn, streaming events via onEvent.
@@ -154,10 +156,15 @@ export async function runAgentLoop({
 
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
   let loopCount = 0;
-  // Was 12 — too low for real multi-file tasks (plan + read + write x N +
-  // lint + tests routinely blows past that on anything non-trivial), which
-  // is why longer jobs were getting cut off mid-work instead of finishing.
-  const MAX_LOOPS = 40;
+  // Economy: simple site/landing must be fast — cap loops lower for trivial prompts
+  const isSimplePrompt = /(простой сайт|одностраничник|лендинг|simple site|landing page|одностраничный)/i.test(rawLastPrompt);
+  const MAX_LOOPS = isSimplePrompt ? 15 : 30;
+  // Helper: trim old history to save tokens (keep system + recent 14)
+  const trimForEconomy = (msgs) => {
+    if (msgs.length <= 18) return msgs;
+    // keep system + last 14 messages — preserves recent tool pairs, drops stale middle
+    return [msgs[0], ...msgs.slice(-14)];
+  };
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
   // Keep a bounded loop so an agent cannot spend minutes repeating the same failed tool call.
@@ -220,10 +227,12 @@ export async function runAgentLoop({
     let result = null;
     // Retry loop for rate-limit stalls — never abort the whole turn on 429,
     // just back off, persist what we have, and continue the agent loop.
+    // Economy: trim history for API to save tokens (full history kept for persistence)
+    const apiMessages = trimForEconomy(messages);
     for (let rlAttempt = 0; rlAttempt < 6; rlAttempt++) {
       try {
         result = await chatFn({
-          messages,
+          messages: apiMessages,
           tools: activeTools,
           model: effectiveModel,
           signal,
@@ -486,11 +495,16 @@ export async function runAgentLoop({
         onEvent({ type: "plan_step", completed: planStepDone });
       }
 
+      // Safety: ensure tool message content is always a string (prevents Mistral 422 "Field required")
+      let toolContent;
+      if (execResult.error) toolContent = JSON.stringify({ error: execResult.error });
+      else if (execResult.result !== undefined) toolContent = JSON.stringify(execResult.result);
+      else toolContent = JSON.stringify(execResult);
       messages.push({
         role: "tool",
         tool_call_id: call.id,
         name: call.function.name,
-        content: JSON.stringify(execResult.error ? { error: execResult.error } : execResult.result)
+        content: toolContent || "{}"
       });
     };
 

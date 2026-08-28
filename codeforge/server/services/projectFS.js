@@ -592,7 +592,7 @@ export async function executeTool(toolName, args, fsMap) {
     }
 
     case "check_preview": {
-      return checkPreview(fsMap, args && args.entry);
+      return { result: checkPreview(fsMap, args && args.entry) };
     }
 
     case "duplicate_file": {
