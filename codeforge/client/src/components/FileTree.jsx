@@ -39,8 +39,7 @@ function TreeNode({ node, depth, activeFile, onSelect, parentPath }) {
         const fullPath = parentPath ? `${parentPath}/${child.name}` : child.name;
         return (
         <div key={fullPath}>
-          {child.isFile ? (
-            {(() => { const Icon = fileIconByExt(child.name); return (
+          {child.isFile ? (() => { const Icon = fileIconByExt(child.name); return (
             <button
               className={`tree-file ${activeFile === child.path ? "active" : ""}`}
               style={{ paddingLeft: 12 + depth * 14 }}
@@ -49,8 +48,7 @@ function TreeNode({ node, depth, activeFile, onSelect, parentPath }) {
               <Icon size={13} className="tree-icon" />
               <span>{child.name}</span>
             </button>
-            ); })()}
-          ) : (
+            ); })() : (
             <div>
               <div className="tree-folder" style={{ paddingLeft: 12 + depth * 14 }}>
                 <FolderOpen size={13} className="tree-icon tree-icon-folder" />
