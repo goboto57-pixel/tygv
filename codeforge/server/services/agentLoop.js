@@ -83,6 +83,7 @@ export async function runAgentLoop({
   const preTurnFiles = new Map(fsMap);
 
   const budget = createBudgetTracker(budgetLimits);
+  const toolTimers = new Map(); // name -> startedAt (ms)
 
   // --- Step -1: load durable project memory, if any, and fold it into the system prompt ---
   const memoryEntries = await loadMemory(memoryKey);
@@ -347,8 +348,10 @@ export async function runAgentLoop({
     });
 
     const executePrepared = async ({ call, args }) => {
-      onEvent({ type: "tool_call", name: call.function.name, args });
-      budget.addToolCall(call.function.name);
+      const tName = call.function.name;
+      toolTimers.set(tName, Date.now());
+      onEvent({ type: "tool_call", name: tName, args, ts: Date.now() });
+      budget.addToolCall(tName);
 
       if (call.function.name === "delegate_to_subagent") {
         onEvent({ type: "subagent_start", task: args.task });
@@ -499,10 +502,13 @@ export async function runAgentLoop({
         onEvent({ type: "test_run", ...execResult.testRun });
       }
 
+      const dur = toolTimers.has(call.function.name) ? Date.now() - toolTimers.get(call.function.name) : null;
+      toolTimers.delete(call.function.name);
       onEvent({
         type: "tool_result",
         name: call.function.name,
-        result: execResult.error || execResult.result
+        result: execResult.error || execResult.result,
+        durationMs: dur
       });
 
       // Mark a plan step as completed for each meaningful mutating action so

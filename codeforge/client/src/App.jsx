@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { X } from "lucide-react";
 import { ChatProvider, useChat } from "./context/ChatContext.jsx";
 import { FilesProvider, useFiles } from "./context/FilesContext.jsx";
 import { SessionsProvider, useSessions } from "./context/SessionsContext.jsx";
@@ -118,9 +119,41 @@ function SessionsBridge() {
   );
 }
 
+function OnboardingTour({ onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+        <div className="modal-head"><span>Добро пожаловать в CodeForge</span><button className="icon-btn" onClick={onClose}><X size={14} /></button></div>
+        <div style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+          <p>Это мульти-агентная студия: опишите задачу — агент создаст сайт, приложение или скрипт.</p>
+          <ul style={{ paddingLeft: 18, marginTop: 8 }}>
+            <li>📁 Файлы справа — редактируйте, дублируйте, смотрите превью.</li>
+            <li>👁 Превью — device, масштаб, тёмная тема, a11y/SEO, остановка.</li>
+            <li>💬 Чат — поиск (режим .*), закрепить, закладки, экспорт PDF/JSON.</li>
+            <li>⚙ Настройки — модель, план-утверждение, предохранитель.</li>
+          </ul>
+        </div>
+        <button className="btn-new-chat" style={{ marginTop: 12, width: "100%" }} onClick={onClose}>Начать</button>
+      </div>
+    </div>
+  );
+}
+
 function AppInner() {
   const { notify } = useUI();
-  return <SessionsProvider notify={notify}><SessionsBridge /></SessionsProvider>;
+  const [showTour, setShowTour] = React.useState(() => {
+    try { return !localStorage.getItem("codeforge_onboarded"); } catch { return false; }
+  });
+  const closeTour = () => {
+    try { localStorage.setItem("codeforge_onboarded", "1"); } catch {}
+    setShowTour(false);
+  };
+  return (
+    <SessionsProvider notify={notify}>
+      <SessionsBridge />
+      {showTour && <OnboardingTour onClose={closeTour} />}
+    </SessionsProvider>
+  );
 }
 
 export default function App() {

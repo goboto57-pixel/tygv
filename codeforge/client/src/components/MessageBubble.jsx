@@ -31,6 +31,19 @@ export default function MessageBubble({ message }) {
   const hasTools = message.toolEvents && message.toolEvents.length > 0;
   const isThinking = message.status === "thinking" && !message.content;
   const showTyping = !message.content && !hasReasoning && !hasTools && !hasPlan && !isThinking;
+
+  // Track reasoning wall-clock time client-side for the "время рассуждений" badge
+  const reasoningStartRef = React.useRef(null);
+  const [reasoningMs, setReasoningMs] = React.useState(null);
+  React.useEffect(() => {
+    if (hasReasoning && !reasoningStartRef.current && !message.content) {
+      reasoningStartRef.current = Date.now();
+    }
+    if (message.content && reasoningStartRef.current && reasoningMs == null) {
+      setReasoningMs(Date.now() - reasoningStartRef.current);
+      reasoningStartRef.current = null;
+    }
+  }, [hasReasoning, message.content, reasoningMs]);
   if (isUser) {
     return (
       <motion.div
@@ -85,7 +98,7 @@ export default function MessageBubble({ message }) {
         {hasReasoning && (
           <div className="reasoning-block" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", overflow: "hidden", marginBottom: 10 }}>
             <button className="reasoning-toggle" onClick={() => setReasoningOpen((v) => !v)} style={{ width: "100%", justifyContent: "space-between" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brain size={13} /> Ход рассуждений {hasReasoning && <span style={{ fontSize: "10px", background: "var(--bg-3)", padding: "2px 6px", borderRadius: 10 }}>{message.reasoning.length > 100 ? `${Math.round(message.reasoning.length/100)/10}k` : message.reasoning.length}</span>}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brain size={13} /> Ход рассуждений {hasReasoning && <span style={{ fontSize: "10px", background: "var(--bg-3)", padding: "2px 6px", borderRadius: 10 }}>{message.reasoning.length > 100 ? `${Math.round(message.reasoning.length/100)/10}k` : message.reasoning.length}</span>}{reasoningMs != null && <span style={{ fontSize: "10px", opacity: 0.7 }}>· {(reasoningMs/1000).toFixed(1)}s</span>}</span>
               <ChevronDown
                 size={14}
                 className="reasoning-chevron"

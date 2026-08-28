@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, MessageSquare, X, Sparkles, PanelLeftClose } from "lucide-react";
+import { Plus, MessageSquare, X, Sparkles, PanelLeftClose, Search } from "lucide-react";
 import { useSessions } from "../context/SessionsContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import { useSettings } from "../context/SettingsContext.jsx";
@@ -10,6 +10,13 @@ export default function Sidebar({ open, onClose, isMobile }) {
   const { leftSidebarOpen, setLeftSidebarOpen } = useUI();
   const { settings, MODELS } = useSettings();
   const activeModel = MODELS.find((m) => m.id === settings.model);
+  const [filter, setFilter] = useState("");
+
+  const filtered = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return chatList;
+    return chatList.filter((c) => (c.title || "").toLowerCase().includes(q));
+  }, [chatList, filter]);
 
   const handleNewChat = () => {
     newChat();
@@ -41,12 +48,17 @@ export default function Sidebar({ open, onClose, isMobile }) {
         Новый проект
       </button>
 
+      <div className="sidebar-search">
+        <Search size={13} />
+        <input placeholder="Поиск по чатам…" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      </div>
+
       <div className="sidebar-section-label">История</div>
       <div className="sidebar-list">
         {chatList.length === 0 && (
           <div className="sidebar-empty">Пока нет сохранённых чатов</div>
         )}
-        {chatList.map((c) => (
+        {filtered.map((c) => (
           <button
             key={c.id}
             className={`sidebar-item ${c.id === chatId ? "active" : ""}`}
@@ -56,6 +68,7 @@ export default function Sidebar({ open, onClose, isMobile }) {
             <span className="sidebar-item-title">{c.title}</span>
           </button>
         ))}
+        {filter.trim() && filtered.length === 0 && <div className="sidebar-empty">Ничего не найдено</div>}
       </div>
 
       <div className="sidebar-footer">

@@ -33,7 +33,12 @@ export default function ToolCallItem({ event }) {
       </div>
       <span className="tool-call-label">{label}</span>
       {target && <code className="tool-call-target">{target}</code>}
-      {event.status === "done" && <Check size={12} className="tool-call-check" />}
+      {event.status === "done" && (
+        <span className="tool-call-dur">
+          {event.durationMs != null ? `${(event.durationMs / 1000).toFixed(1)}s` : ""}
+          <Check size={12} className="tool-call-check" />
+        </span>
+      )}
     </div>
   );
 }

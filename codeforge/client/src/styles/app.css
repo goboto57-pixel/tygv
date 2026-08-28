@@ -3020,3 +3020,10 @@
 .git-btn:hover { background: var(--bg-3); color: var(--text-primary); }
 .upload-progress { height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin: 4px 10px; }
 .upload-progress-bar { height: 100%; background: var(--brand); transition: width 0.2s; }
+
+.sidebar-search { display: flex; align-items: center; gap: 6px; margin: 8px 10px; padding: 6px 8px; background: var(--bg-2); border: 1px solid var(--border-subtle); border-radius: 8px; }
+.sidebar-search input { flex: 1; background: transparent; border: 0; outline: none; color: var(--text-primary); font-size: 12px; }
+.live-preview-inspect { border-top: 1px solid var(--border-subtle); background: #0b0d12; max-height: 220px; overflow: auto; }
+.inspect-head { font-size: 11px; color: var(--text-tertiary); padding: 6px 10px; position: sticky; top: 0; background: var(--bg-1); }
+.inspect-pre { font-size: 11px; color: #9fb3c8; padding: 0 10px 10px; white-space: pre-wrap; word-break: break-all; font-family: monospace; }
+.tool-call-dur { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary); }

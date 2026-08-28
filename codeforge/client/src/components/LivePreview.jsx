@@ -90,6 +90,7 @@ export default function LivePreview({ files, activeFile }) {
   const [isDark, setIsDark] = useState(false);
   const [scale, setScale] = useState(100);
   const [showA11y, setShowA11y] = useState(false);
+  const [showInspect, setShowInspect] = useState(false);
   const [stopped, setStopped] = useState(false);
 
   const a11y = useMemo(() => {
@@ -210,6 +211,7 @@ export default function LivePreview({ files, activeFile }) {
           <span style={{ fontSize: "10px", color: "var(--text-tertiary)", minWidth: 32 }}>{scale}%</span>
           <button className={`icon-btn ${isDark ? "icon-btn-active" : ""}`} onClick={() => setIsDark((v) => !v)} title={isDark ? "Светлая тема превью" : "Тёмная тема превью"}>{isDark ? "🌙" : "☀️"}</button>
           <button className={`icon-btn ${showA11y ? "icon-btn-active" : ""}`} onClick={() => setShowA11y((v) => !v)} title={`a11y/SEO (WC ${a11y.score})`}>♿</button>
+          <button className={`icon-btn ${showInspect ? "icon-btn-active" : ""}`} onClick={() => setShowInspect((v) => !v)} title="Инспектор (HTML превью)">{`</>`}</button>
           <button className={`icon-btn ${stopped ? "icon-btn-active" : ""}`} onClick={() => setStopped((v) => !v)} title={stopped ? "Запустить превью" : "Остановить превью"}>{stopped ? "▶" : "⏸"}</button>
           <button className="icon-btn" onClick={copyUrl} title="Копировать URL превью"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
@@ -221,6 +223,12 @@ export default function LivePreview({ files, activeFile }) {
         <div className="live-preview-a11y">
           <div className="a11y-head">Доступность/SEO: <b style={{ color: a11y.score > 70 ? "#4ade80" : a11y.score > 40 ? "#fbbf24" : "#f87171" }}>{a11y.score}%</b></div>
           {a11y.issues.length === 0 ? <div className="a11y-ok">✓ Базовые проверки пройдены</div> : a11y.issues.map((i, k) => <div key={k} className="a11y-issue">• {i}</div>)}
+        </div>
+      )}
+      {showInspect && (
+        <div className="live-preview-inspect">
+          <div className="inspect-head">Инспектор — HTML (только просмотр)</div>
+          <pre className="inspect-pre">{srcDoc}</pre>
         </div>
       )}
       {stopped && <div className="live-preview-stopped" onClick={() => setStopped(false)}>Превью остановлено — нажмите ▶ чтобы запустить</div>}
