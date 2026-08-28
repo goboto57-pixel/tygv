@@ -1658,21 +1658,27 @@
 }
 
 /* ===================== SETTINGS MODAL ===================== */
-.settings-modal {
+.settings-modal-wrap {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 61;
+  pointer-events: none;
+}
+.settings-modal {
   width: min(480px, 92vw);
   max-height: 84vh;
   background: var(--bg-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  z-index: 61;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  pointer-events: auto;
 }
 .settings-header {
   display: flex;

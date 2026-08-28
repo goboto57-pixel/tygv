@@ -61,6 +61,7 @@ export default function SettingsModal() {
             onClick={() => setSettingsOpen(false)}
             aria-hidden="true"
           />
+          <div className="settings-modal-wrap">
           <motion.div
             ref={modalRef}
             className="settings-modal"
@@ -213,6 +214,7 @@ export default function SettingsModal() {
               </section>
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>
