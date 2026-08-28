@@ -151,6 +151,10 @@ export async function runAgentLoop({
 
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
   let loopCount = 0;
+  // Was 12 — too low for real multi-file tasks (plan + read + write x N +
+  // lint + tests routinely blows past that on anything non-trivial), which
+  // is why longer jobs were getting cut off mid-work instead of finishing.
+  const MAX_LOOPS = 40;
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
   // Keep a bounded loop so an agent cannot spend minutes repeating the same failed tool call.
