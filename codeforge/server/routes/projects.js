@@ -1,0 +1,241 @@
+import express from "express";
+import archiver from "archiver";
+import { v4 as uuid } from "uuid";
+import { saveJson, loadJson, listJson, deleteJson } from "../services/cloudinaryService.js";
+import { gitLog, gitDiff, gitShow } from "../services/gitService.js";
+
+const router = express.Router();
+import { withChatWriteLock } from "../services/chatWriteLock.js";
+
+// --- Chat history ---
+
+router.get("/chats", async (req, res) => {
+  try {
+    const resources = await listJson("chat", 100);
+    const items = await Promise.all(
+      resources.map(async (r) => {
+        const id = r.public_id.split("/").pop();
+        const data = await loadJson(id, "chat");
+        return {
+          id,
+          title: data?.title || data?.messages?.[0]?.content?.slice(0, 60) || "Untitled chat",
+          updatedAt: data?.updatedAt || r.created_at,
+          messageCount: data?.messages?.length || 0
+        };
+      })
+    );
+    items.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    res.json({ chats: items });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/chats/:id", async (req, res) => {
+  try {
+    const data = await loadJson(req.params.id, "chat");
+    if (!data) return res.status(404).json({ error: "Chat not found" });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/chats", async (req, res) => {
+  try {
+    const id = req.body.id || uuid();
+    await saveJson(id, { ...req.body, id, updatedAt: new Date().toISOString() }, "chat");
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/chats/:id", async (req, res) => {
+  try {
+    await deleteJson(req.params.id, "chat");
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Persist manual file edits (e.g. inline CodeViewer autosave) without
+// touching message history. Merges into the existing chat record so a
+// page reload never loses an edit the user made outside the agent loop.
+router.patch("/chats/:id/files", async (req, res) => {
+  try {
+    const { files } = req.body;
+    if (!files || !Array.isArray(files)) {
+      return res.status(400).json({ error: "files array required" });
+    }
+    await withChatWriteLock(req.params.id, async () => {
+      const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
+      await saveJson(
+        req.params.id,
+        { ...existing, id: req.params.id, files, updatedAt: new Date().toISOString() },
+        "chat"
+      );
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Persist manual message edits (e.g. user editing a prior prompt) without
+// touching file state. Used for "edit message" flow in the UI.
+router.patch("/chats/:id/messages", async (req, res) => {
+  try {
+    const { messages, title } = req.body;
+    if (!messages || !Array.isArray(messages)) {
+      return res.status(400).json({ error: "messages array required" });
+    }
+    await withChatWriteLock(req.params.id, async () => {
+      const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
+      const next = { ...existing, id: req.params.id, messages };
+      if (Array.isArray(req.body.uiMessages)) next.uiMessages = req.body.uiMessages;
+      if (typeof title === "string" && title.trim()) next.title = title.trim().slice(0, 120);
+      await saveJson(req.params.id, { ...next, updatedAt: new Date().toISOString() }, "chat");
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Persist title and/or other lightweight session metadata without replacing history/files.
+router.patch("/chats/:id/meta", async (req, res) => {
+  try {
+    let title;
+    await withChatWriteLock(req.params.id, async () => {
+      const existing = (await loadJson(req.params.id, "chat")) || { id: req.params.id, messages: [] };
+      title = typeof req.body.title === "string" ? req.body.title.trim().slice(0, 120) : existing.title;
+      await saveJson(req.params.id, { ...existing, id: req.params.id, ...(title ? { title } : {}), updatedAt: new Date().toISOString() }, "chat");
+    });
+    res.json({ success: true, title });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Snapshots (version checkpoints) ---
+
+router.post("/snapshots", async (req, res) => {
+  try {
+    const id = uuid();
+    const { chatId, label, files } = req.body;
+    await saveJson(
+      id,
+      { id, chatId, label, files, createdAt: new Date().toISOString() },
+      "snapshot"
+    );
+    res.json({ id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/snapshots/:chatId", async (req, res) => {
+  try {
+    const resources = await listJson("snapshot", 200);
+    const items = await Promise.all(
+      resources.map(async (r) => {
+        const id = r.public_id.split("/").pop();
+        return loadJson(id, "snapshot");
+      })
+    );
+    const filtered = items.filter((s) => s && s.chatId === req.params.chatId);
+    filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    res.json({ snapshots: filtered });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Git (real history reconstructed from snapshots) ---
+
+async function loadOrderedSnapshots(chatId) {
+  const resources = await listJson("snapshot", 200);
+  const items = await Promise.all(
+    resources.map(async (r) => loadJson(r.public_id.split("/").pop(), "snapshot"))
+  );
+  const filtered = items.filter((s) => s && s.chatId === chatId);
+  filtered.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)); // oldest -> newest for replay
+  return filtered;
+}
+
+router.get("/git/:chatId/log", async (req, res) => {
+  try {
+    const snapshots = await loadOrderedSnapshots(req.params.chatId);
+    if (!snapshots.length) return res.json({ commits: [] });
+    const commits = await gitLog(snapshots);
+    res.json({ commits });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/git/:chatId/diff", async (req, res) => {
+  try {
+    const snapshots = await loadOrderedSnapshots(req.params.chatId);
+    if (snapshots.length < 2) return res.json({ diff: "", stat: "", note: "Need at least 2 snapshots to diff." });
+    // Accept snapshot IDs (preferred — unambiguous) or fall back to
+    // numeric indices into the oldest->newest order used for replay.
+    const idToIndex = new Map(snapshots.map((s, i) => [s.id, i]));
+    const resolve = (val) => {
+      if (val === undefined) return undefined;
+      if (idToIndex.has(val)) return idToIndex.get(val);
+      const n = Number(val);
+      return Number.isInteger(n) ? n : undefined;
+    };
+    const from = resolve(req.query.from);
+    const to = resolve(req.query.to);
+    const result = await gitDiff(snapshots, { from, to });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/git/:chatId/show/:index", async (req, res) => {
+  try {
+    const snapshots = await loadOrderedSnapshots(req.params.chatId);
+    const result = await gitShow(snapshots, Number(req.params.index));
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- Export project as ZIP ---
+
+router.post("/export-zip", async (req, res) => {
+  try {
+    const { files, projectName } = req.body;
+    if (!files || !Array.isArray(files)) {
+      return res.status(400).json({ error: "files array required" });
+    }
+
+    res.writeHead(200, {
+      "Content-Type": "application/zip",
+      "Content-Disposition": `attachment; filename="${(projectName || "codeforge-project").replace(/[^a-zA-Z0-9._-]/g, "_")}.zip"`
+    });
+
+    const archive = archiver("zip", { zlib: { level: 9 } });
+    archive.pipe(res);
+
+    for (const file of files) {
+      const rawPath = String(file?.path || "").replace(/\\/g, "/");
+      const safePath = rawPath.replace(/^\/+/, "").split("/").filter((part) => part && part !== "." && part !== "..").join("/");
+      if (!safePath) continue;
+      archive.append(String(file?.content || ""), { name: safePath });
+    }
+
+    await archive.finalize();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export default router;
