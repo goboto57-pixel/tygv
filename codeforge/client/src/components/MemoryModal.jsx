@@ -10,7 +10,10 @@ export default function MemoryModal({ open, onClose }) {
 
   const scopeId = useMemo(() => {
     try {
-      return JSON.parse(localStorage.getItem("codeforge_workspace_id") || "null") || "default";
+      const raw = localStorage.getItem("codeforge_workspace_id");
+      if (!raw) return "default";
+      // stored as plain string by ChatContext.getWorkspaceId(), not JSON
+      return raw;
     } catch {
       return "default";
     }
@@ -37,7 +40,7 @@ export default function MemoryModal({ open, onClose }) {
     const q = query.trim().toLowerCase();
     if (!q) return entries;
     return entries.filter(
-      (e) => (e.key || "").toLowerCase().includes(q) || (e.value || "").toLowerCase().includes(q) || (e.category || "").toLowerCase().includes(q)
+      (e) => (e.text || "").toLowerCase().includes(q) || (e.category || "").toLowerCase().includes(q)
     );
   }, [entries, query]);
 

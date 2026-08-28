@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight, Focus, BarChart3 } from "lucide-react";
+import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight, Focus, BarChart3, Bookmark } from "lucide-react";
 import { useChat } from "../context/ChatContext.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useSessions } from "../context/SessionsContext.jsx";
