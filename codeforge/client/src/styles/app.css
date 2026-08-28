@@ -2994,3 +2994,29 @@
 .files-templates { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-1); flex-wrap: wrap; }
 .template-chip { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--border-subtle); color: var(--text-secondary); cursor: pointer; }
 .template-chip:hover { background: var(--bg-3); color: var(--text-primary); }
+
+/* preview a11y / stop overlays */
+.live-preview-a11y { border-top: 1px solid var(--border-subtle); background: var(--bg-1); padding: 8px 10px; font-size: 11px; }
+.a11y-head { font-weight: 600; margin-bottom: 4px; }
+.a11y-issue { color: var(--text-secondary); padding: 2px 0; }
+.a11y-ok { color: #4ade80; }
+.live-preview-stopped { padding: 24px; text-align: center; color: var(--text-tertiary); cursor: pointer; font-size: 12px; }
+.code-viewer-version { background: var(--bg-2); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 6px; font-size: 11px; padding: 2px 4px; }
+.msg-actions .icon-btn { font-size: 10px; padding: 3px 6px; }
+.recent-prompts-pop { position: absolute; bottom: 36px; left: 0; background: var(--bg-2); border: 1px solid var(--border-strong); border-radius: 8px; max-width: 320px; max-height: 240px; overflow: auto; z-index: 30; padding: 6px; }
+.recent-prompt-item { display: block; width: 100%; text-align: left; font-size: 11px; padding: 6px 8px; border-radius: 6px; color: var(--text-secondary); }
+.recent-prompt-item:hover { background: var(--bg-3); color: var(--text-primary); }
+.recent-empty { font-size: 11px; color: var(--text-tertiary); padding: 6px 8px; }
+.modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 80; }
+.modal-card { background: var(--bg-1); border: 1px solid var(--border-strong); border-radius: 12px; padding: 16px; min-width: 320px; max-width: 90vw; }
+.modal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-weight: 600; }
+.shortcuts-list { display: flex; flex-direction: column; gap: 8px; font-size: 12px; color: var(--text-secondary); }
+.shortcuts-list kbd { background: var(--bg-3); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 1px 5px; margin-right: 6px; font-size: 11px; }
+.memory-edit-area { width: 100%; background: var(--bg-2); border: 1px solid var(--border-subtle); border-radius: 6px; color: var(--text-primary); font-size: 12px; padding: 6px; }
+.chat-input-recent { background: transparent; border: 0; color: var(--text-tertiary); font-size: 11px; cursor: pointer; }
+.chat-input-recent:hover { color: var(--text-primary); }
+.files-git-bar { display: flex; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-1); align-items: center; }
+.git-btn { font-size: 11px; padding: 4px 8px; border-radius: 6px; background: var(--bg-2); border: 1px solid var(--border-subtle); color: var(--text-secondary); cursor: pointer; }
+.git-btn:hover { background: var(--bg-3); color: var(--text-primary); }
+.upload-progress { height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden; margin: 4px 10px; }
+.upload-progress-bar { height: 100%; background: var(--brand); transition: width 0.2s; }

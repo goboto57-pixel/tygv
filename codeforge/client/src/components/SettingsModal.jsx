@@ -217,6 +217,22 @@ export default function SettingsModal() {
                   />
                   <span>Автоматически откатывать изменения хода, если тесты остались проваленными</span>
                 </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={!!settings.budgetPause}
+                    onChange={(e) => updateSettings({ budgetPause: e.target.checked })}
+                  />
+                  <span>Ставить задачу на паузу при превышении лимита токенов/времени (вместо жёсткой остановки)</span>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={settings.circuitBreaker !== false}
+                    onChange={(e) => updateSettings({ circuitBreaker: e.target.checked })}
+                  />
+                  <span>Автоматический предохранитель: пропускать совет при повторных сбоях</span>
+                </label>
               </section>
 
               <section className="settings-section settings-shortcuts">

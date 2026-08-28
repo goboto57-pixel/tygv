@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { X, Trash2, Search, Bookmark, Eraser } from "lucide-react";
+import { X, Trash2, Search, Bookmark, Eraser, Pencil, Check } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 
@@ -7,6 +7,8 @@ export default function MemoryModal({ open, onClose }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState("");
+  const [editId, setEditId] = useState(null);
+  const [editText, setEditText] = useState("");
 
   const scopeId = useMemo(() => {
     try {
@@ -48,6 +50,22 @@ export default function MemoryModal({ open, onClose }) {
     try {
       await fetch(`${API_BASE}/chat/memory/${encodeURIComponent(scopeId)}/${encodeURIComponent(id)}`, { method: "DELETE" });
       setEntries((prev) => prev.filter((e) => e.id !== id));
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const startEdit = (e) => { setEditId(e.id); setEditText(e.text); };
+  const saveEdit = async (id) => {
+    try {
+      const r = await fetch(`${API_BASE}/chat/memory/${encodeURIComponent(scopeId)}/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: editText })
+      });
+      const data = await r.json();
+      if (data.entry) setEntries((prev) => prev.map((e) => (e.id === id ? data.entry : e)));
+      setEditId(null);
     } catch {
       /* ignore */
     }
@@ -108,11 +126,22 @@ export default function MemoryModal({ open, onClose }) {
                 <div className="memory-item-head">
                   {e.category && <span className="memory-cat">{e.category}</span>}
                   <span className="memory-key">{String(e.text || "").split("\n")[0].slice(0, 70)}</span>
-                  <button className="icon-btn memory-del" title="Удалить" aria-label="Удалить" onClick={() => remove(e.id)}>
-                    <Trash2 size={13} />
-                  </button>
+                  <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+                    {editId === e.id ? (
+                      <button className="icon-btn memory-del" title="Сохранить" onClick={() => saveEdit(e.id)}><Check size={13} /></button>
+                    ) : (
+                      <button className="icon-btn memory-del" title="Редактировать" onClick={() => startEdit(e)}><Pencil size={13} /></button>
+                    )}
+                    <button className="icon-btn memory-del" title="Удалить" aria-label="Удалить" onClick={() => remove(e.id)}>
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
                 </div>
-                <div className="memory-value">{e.text}</div>
+                {editId === e.id ? (
+                  <textarea className="memory-edit-area" value={editText} onChange={(ev) => setEditText(ev.target.value)} rows={3} autoFocus />
+                ) : (
+                  <div className="memory-value">{e.text}</div>
+                )}
               </div>
             ))}
         </div>

@@ -136,6 +136,14 @@ export async function clearMemory(scopeId) {
   cachePut(scopeId, []);
 }
 
+export async function updateMemoryEntry(scopeId, entryId, { text, category }) {
+  const existing = await loadMemory(scopeId);
+  const next = existing.map((e) => e.id === entryId ? { ...e, text: text ?? e.text, category: category ?? e.category } : e);
+  await saveJson(memoryId(scopeId), { entries: next }, "memory");
+  cachePut(scopeId, next);
+  return next.find((e) => e.id === entryId) || null;
+}
+
 /**
  * Renders memory entries into a compact block for the system prompt.
  * Grouped by category so related notes read together instead of as one

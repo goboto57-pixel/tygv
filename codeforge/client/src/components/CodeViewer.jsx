@@ -20,7 +20,7 @@ function getLanguage(path) {
 }
 
 export default function CodeViewer({ path, content, prevContent }) {
-  const { updateFileContent } = useFiles();
+  const { updateFileContent, getFileHistory } = useFiles();
   const { notify } = useUI();
   const [copied, setCopied] = useState(false);
   const [mode, setMode] = useState("code");
@@ -113,6 +113,10 @@ export default function CodeViewer({ path, content, prevContent }) {
   }, [originalContent]);
 
   const hasDiff = !!prevContent && prevContent !== content;
+  const versions = useMemo(() => getFileHistory(path), [path, getFileHistory, content]);
+  const [diffVersion, setDiffVersion] = useState(null);
+  const effectivePrev = diffVersion != null ? versions[diffVersion] : prevContent;
+  const activeDiff = !!effectivePrev && effectivePrev !== content;
 
   // Real-time lint of whatever's currently on screen
   const lintTarget = editing ? draft : content;
@@ -180,11 +184,11 @@ export default function CodeViewer({ path, content, prevContent }) {
             </>
           ) : (
             <>
-              {hasDiff && (
+              {(hasDiff || versions.length > 0) && (
                 <div className="code-viewer-mode-switch">
                   <button
                     className={mode === "code" ? "active" : ""}
-                    onClick={() => setMode("code")}
+                    onClick={() => { setMode("code"); setDiffVersion(null); }}
                     title="Показать код"
                   >
                     <Code2 size={13} />
@@ -197,6 +201,12 @@ export default function CodeViewer({ path, content, prevContent }) {
                     <GitCompare size={13} />
                   </button>
                 </div>
+              )}
+              {versions.length > 0 && (
+                <select className="code-viewer-version" value={diffVersion ?? ""} onChange={(e) => { setDiffVersion(e.target.value === "" ? null : Number(e.target.value)); setMode("diff"); }} title="Сравнить с версией">
+                  <option value="">текущая</option>
+                  {versions.map((v, i) => <option key={i} value={i}>версия {versions.length - i}</option>)}
+                </select>
               )}
               <button className="code-viewer-copy" onClick={startEdit} title="Редактировать файл">
                 <Pencil size={13} /> Изменить
@@ -256,8 +266,8 @@ export default function CodeViewer({ path, content, prevContent }) {
             }}
           />
         </>
-      ) : mode === "diff" && hasDiff ? (
-        <DiffViewer oldContent={prevContent} newContent={content} />
+      ) : mode === "diff" && activeDiff ? (
+        <DiffViewer oldContent={effectivePrev} newContent={content} />
       ) : (
         <div className="code-viewer-wrap">
           <div className="code-viewer-body" style={{ flex: 1 }}>

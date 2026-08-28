@@ -59,6 +59,8 @@ export async function runAgentLoop({
   files,
   model,
   mode = "single",
+  circuitBreaker = true,
+  budgetPause = false,
   enhance = true,
   images,
   chatId,
@@ -106,7 +108,7 @@ export async function runAgentLoop({
   let leadingNote = "";
 
   // --- Step 1: mode-specific setup ---
-  if (mode === "council") {
+  if (mode === "council" && circuitBreaker !== false) {
     onEvent({ type: "council", status: "thinking" });
     const lastUserText = workingHistory[workingHistory.length - 1]?.content || "";
     const projectSummary = fsToArray(fsMap)
@@ -295,6 +297,11 @@ export async function runAgentLoop({
     if (budgetEvent) {
       onEvent({ type: "budget_warning", ...budgetEvent, snapshot: budget.snapshot() });
       if (budgetEvent.exceeded) {
+        if (budgetPause) {
+          onEvent({ type: "status", text: `Пауза по лимиту (${budgetEvent.kind}); продолжи вручную` });
+          onEvent({ type: "budget_warning", ...budgetEvent, level: "paused", snapshot: budget.snapshot() });
+          return await finalizeTurn();
+        }
         onEvent({ type: "error", message: `Hard budget limit exceeded (${budgetEvent.kind}: ${budgetEvent.value} / ${budgetEvent.limit}). Aborting.` });
         return await finalizeTurn();
       }

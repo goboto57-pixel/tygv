@@ -5,7 +5,7 @@ import { saveJson, loadJson } from "../services/cloudinaryService.js";
 import { transcribeAudio } from "../services/mistralClient.js";
 import { createPendingApproval, resolveApproval } from "../services/approvalHub.js";
 import { startOrResumeJob, subscribe, generateRunId, abortJob } from "../services/jobManager.js";
-import { loadMemory, deleteMemoryEntry, clearMemory } from "../services/memoryService.js";
+import { loadMemory, deleteMemoryEntry, clearMemory, updateMemoryEntry } from "../services/memoryService.js";
 
 const router = express.Router();
 import { withChatWriteLock } from "../services/chatWriteLock.js";
@@ -44,7 +44,7 @@ router.post("/stream", async (req, res) => {
   const {
     history, files, chatId, memoryKey, model, mode, enhance, images,
     requireApproval, autoRollback, runId: requestedRunId, resume,
-    requirePlanApproval
+    requirePlanApproval, circuitBreaker, budgetPause
   } = req.body;
 
   // A resume request only needs the runId; the job is already running on the
@@ -181,7 +181,9 @@ router.post("/stream", async (req, res) => {
       onApprovalNeeded,
       requirePlanApproval: !!requirePlanApproval,
       onPlanApproveNeeded,
-      autoRollbackOnTestFailure: autoRollback !== false
+      autoRollbackOnTestFailure: autoRollback !== false,
+      circuitBreaker: circuitBreaker !== false,
+      budgetPause: budgetPause === true
     },
     onPersist: persistTurn
   });
@@ -226,6 +228,16 @@ router.post("/memory/:scopeId/clear", async (req, res) => {
   try {
     await clearMemory(req.params.scopeId);
     res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.put("/memory/:scopeId/:entryId", async (req, res) => {
+  const { scopeId, entryId } = req.params;
+  try {
+    const updated = await updateMemoryEntry(scopeId, entryId, { text: req.body?.text, category: req.body?.category });
+    res.json({ entry: updated });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit, Pencil, Copy, Pin, Trash2 } from "lucide-react";
+import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit, Pencil, Copy, Pin, Trash2, Bookmark } from "lucide-react";
 import ToolCallItem from "./ToolCallItem.jsx";
 import PlanCard from "./PlanCard.jsx";
 import SessionReportPanel from "./SessionReportPanel.jsx";
@@ -9,7 +9,7 @@ import { useChat } from "../context/ChatContext.jsx";
 
 export default function MessageBubble({ message }) {
   const [reasoningOpen, setReasoningOpen] = useState(true);
-  const { sendMessage } = useChat();
+  const { sendMessage, togglePin, toggleBookmark, deleteMessage } = useChat();
   const [editing, setEditing] = useState(false);
   const [editVal, setEditVal] = useState(message.content || "");
   const isUser = message.role === "user";
@@ -191,6 +191,16 @@ export default function MessageBubble({ message }) {
             <ReactMarkdown>{message.content}</ReactMarkdown>
           </div>
         )}
+
+        <div className="msg-actions" style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+          <button className="icon-btn" title="Скопировать только код" onClick={async () => {
+            const code = (message.content.match(/```[\s\S]*?```/g) || []).map((b) => b.replace(/```\w*\n?/, "").replace(/```$/, "")).join("\n\n");
+            try { await navigator.clipboard.writeText(code || message.content); } catch {}
+          }}><Copy size={12} /> код</button>
+          <button className={`icon-btn ${message.pinned ? "icon-btn-active" : ""}`} title="Закрепить" onClick={() => togglePin(message.id)}><Pin size={12} /></button>
+          <button className={`icon-btn ${message.bookmarked ? "icon-btn-active" : ""}`} title="В закладки" onClick={() => toggleBookmark(message.id)}><Bookmark size={12} /></button>
+          <button className="icon-btn" title="Удалить сообщение" onClick={() => { if (confirm("Удалить это сообщение?")) deleteMessage(message.id); }}><Trash2 size={12} /></button>
+        </div>
 
         {message.memorySaved && message.memorySaved.length > 0 && (
           <div className="memory-saved-list">

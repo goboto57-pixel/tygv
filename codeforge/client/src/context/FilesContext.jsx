@@ -162,10 +162,12 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
     try { if (chatId) localStorage.setItem(`codeforge_files_${chatId}`, JSON.stringify(next)); } catch {}
   }, [chatId]);
 
+  const getFileHistory = useCallback((p) => fileHistory.get(p) || [], [fileHistory]);
+
   const value = useMemo(() => ({
     files, activeFile, setActiveFile, openFiles, openFileTab, closeFileTab,
-    updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory
-  }), [files, activeFile, openFiles, openFileTab, closeFileTab, updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory]);
+    updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory, getFileHistory
+  }), [files, activeFile, openFiles, openFileTab, closeFileTab, updateFileContent, uploadFiles, replaceFiles, setFiles, chatId, fileHistory, getFileHistory]);
 
   return <FilesContext.Provider value={value}>{children}</FilesContext.Provider>;
 }

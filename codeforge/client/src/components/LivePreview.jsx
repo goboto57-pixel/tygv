@@ -89,6 +89,23 @@ export default function LivePreview({ files, activeFile }) {
   const [device, setDevice] = useState("desktop"); // desktop|tablet|mobile
   const [isDark, setIsDark] = useState(false);
   const [scale, setScale] = useState(100);
+  const [showA11y, setShowA11y] = useState(false);
+  const [stopped, setStopped] = useState(false);
+
+  const a11y = useMemo(() => {
+    if (!srcDoc) return { issues: [], score: 100 };
+    const issues = [];
+    const html = srcDoc;
+    const imgs = (html.match(/<img[^>]*>/gi) || []);
+    if (imgs.length && !imgs.every((t) => /alt=/i.test(t))) issues.push("Есть <img> без alt");
+    if (!/<html[^>]*lang=/i.test(html)) issues.push("<html> без lang");
+    if (!/<title[^>]*>[^<]+<\/title>/i.test(html)) issues.push("Нет <title>");
+    if (!/<meta[^>]*name=["']description["']/i.test(html)) issues.push("Нет meta description");
+    if (!/<meta[^>]*name=["']viewport["']/i.test(html)) issues.push("Нет meta viewport");
+    if (!/<h1[\s>]/i.test(html)) issues.push("Нет <h1>");
+    const score = Math.max(0, 100 - issues.length * 14);
+    return { issues, score };
+  }, [srcDoc]);
 
   useEffect(() => {
     const onMsg = (e) => {
@@ -130,7 +147,7 @@ export default function LivePreview({ files, activeFile }) {
     return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [isFullscreen, closeFullscreen]);
 
-  const iframe = (
+  const iframe = stopped ? null : (
     <iframe
       key={refreshKey}
       title="preview"
@@ -192,12 +209,21 @@ export default function LivePreview({ files, activeFile }) {
           <input type="range" min="50" max="150" value={scale} onChange={(e) => setScale(Number(e.target.value))} style={{ width: 60 }} title={`Масштаб ${scale}%`} />
           <span style={{ fontSize: "10px", color: "var(--text-tertiary)", minWidth: 32 }}>{scale}%</span>
           <button className={`icon-btn ${isDark ? "icon-btn-active" : ""}`} onClick={() => setIsDark((v) => !v)} title={isDark ? "Светлая тема превью" : "Тёмная тема превью"}>{isDark ? "🌙" : "☀️"}</button>
+          <button className={`icon-btn ${showA11y ? "icon-btn-active" : ""}`} onClick={() => setShowA11y((v) => !v)} title={`a11y/SEO (WC ${a11y.score})`}>♿</button>
+          <button className={`icon-btn ${stopped ? "icon-btn-active" : ""}`} onClick={() => setStopped((v) => !v)} title={stopped ? "Запустить превью" : "Остановить превью"}>{stopped ? "▶" : "⏸"}</button>
           <button className="icon-btn" onClick={copyUrl} title="Копировать URL превью"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
-          <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
+          <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью (hot reload)"><RefreshCw size={14} /></button>
           <button className="icon-btn" onClick={toggleFullscreen} title="На весь экран"><Maximize2 size={14} /></button>
         </div>
       </div>
+      {showA11y && (
+        <div className="live-preview-a11y">
+          <div className="a11y-head">Доступность/SEO: <b style={{ color: a11y.score > 70 ? "#4ade80" : a11y.score > 40 ? "#fbbf24" : "#f87171" }}>{a11y.score}%</b></div>
+          {a11y.issues.length === 0 ? <div className="a11y-ok">✓ Базовые проверки пройдены</div> : a11y.issues.map((i, k) => <div key={k} className="a11y-issue">• {i}</div>)}
+        </div>
+      )}
+      {stopped && <div className="live-preview-stopped" onClick={() => setStopped(false)}>Превью остановлено — нажмите ▶ чтобы запустить</div>}
       <div style={{ ...frameStyle, transform: `scale(${scale / 100})`, transformOrigin: "top center", background: isDark ? "#111" : "#fff" }}>{iframe}</div>
       {errors.length > 0 && (
         <div className="live-preview-errors">

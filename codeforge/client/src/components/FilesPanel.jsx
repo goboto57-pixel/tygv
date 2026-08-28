@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download, Github } from "lucide-react";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
+import { useChat } from "../context/ChatContext.jsx";
 import FileTree from "./FileTree.jsx";
 import CodeViewer from "./CodeViewer.jsx";
 import LivePreview from "./LivePreview.jsx";
@@ -16,6 +17,7 @@ function fileIcon(path) {
 export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
   const { files, activeFile, openFileTab, openFiles, closeFileTab, chatId, setFiles } = useFiles();
   const { terminalOpen, setTerminalOpen, terminalLog, notify } = useUI();
+  const { sendMessage } = useChat();
   const [tab, setTab] = useState("code"); // 'code' | 'preview'
   const [splitView, setSplitView] = useState(false);
   const [splitFile, setSplitFile] = useState(null);
@@ -87,7 +89,9 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
     const clean = name.replace(/^\/+/, "").trim();
     if (!clean) return;
     if (files.some((f) => f.path === clean)) { notify?.("Файл уже существует", "error"); return; }
-    setFiles((prev) => [...prev, { path: clean, content: "" }]);
+    const ext = clean.split(".").pop().toLowerCase();
+    const starter = { js: "// " + clean + "\nexport default function () {}\n", jsx: "// " + clean + "\nimport React from \"react\";\nexport default function () { return null; }\n", ts: "// " + clean + "\nexport {};\n", tsx: "// " + clean + "\nimport React from \"react\";\nexport default function () { return null; }\n", css: "/* " + clean + " */\n", html: "<!doctype html>\n<html><head><meta charset=\"utf-8\"><title>" + clean + "</title></head><body></body></html>\n", json: "{}\n", md: "# " + clean + "\n" }[ext] || "";
+    setFiles((prev) => [...prev, { path: clean, content: starter }]);
     openFileTab(clean);
     notify?.(`Создан ${clean}`, "success");
   };
@@ -117,6 +121,17 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
     setFiles((prev) => prev.filter((f) => f.path !== activeFile));
     closeFileTab(activeFile);
     notify?.(`Удалён ${activeFile}`, "success");
+  };
+  const duplicateActive = () => {
+    if (!activeFile) return;
+    const base = activeFile.replace(/(\.[^.]+)$/, "_copy$1");
+    let dst = base; let i = 1;
+    while (files.some((f) => f.path === dst)) dst = base.replace(/(_copy)?(\.[^.]+)$/, `_copy${i++}$2`);
+    const src = files.find((f) => f.path === activeFile);
+    if (!src) return;
+    setFiles((prev) => [...prev, { path: dst, content: src.content }]);
+    openFileTab(dst);
+    notify?.(`Дублирован ${activeFile} → ${dst}`, "success");
   };
   const downloadActive = () => {
     if (!activeFile) return;
@@ -170,6 +185,7 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             <button className="icon-btn" onClick={createNewFile} title="Новый файл"><FilePlus size={14} /></button>
             <button className="icon-btn" onClick={createNewFolder} title="Новая папка"><FolderPlus size={14} /></button>
             <button className="icon-btn" onClick={renameActive} title="Переименовать"><Pencil size={13} /></button>
+            <button className="icon-btn" onClick={duplicateActive} title="Дублировать"><Copy size={13} /></button>
             <button className="icon-btn" onClick={deleteActive} title="Удалить"><Trash2 size={13} /></button>
             <button className="icon-btn" onClick={downloadActive} title="Скачать файл"><Download size={13} /></button>
             <button className="icon-btn" onClick={() => downloadFolder("")} title="Скачать проект ZIP"><Download size={13} /></button>
@@ -257,6 +273,11 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
         ) : (
           hasPackageJson ? <WebContainerPreview files={files} key={chatId} /> : <LivePreview files={files} activeFile={activeFile} />
         )}
+        <div className="files-git-bar">
+          <button className="git-btn" title="Закоммитить изменения" onClick={() => sendMessage(`Закоммить все текущие изменения проекта в git с осмысленным сообщением.`)}>⎇ commit</button>
+          <button className="git-btn" title="Запушить в GitHub" onClick={() => sendMessage(`Запуши текущий проект в GitHub (создай репозиторий/коммит если нужно).`)}>⎇ push</button>
+          <button className="git-btn" title="Поделиться проектом (копировать ссылку)" onClick={async () => { try { await navigator.clipboard.writeText(`${window.location.origin}/?chat=${chatId}`); notify?.("Ссылка на проект скопирована", "success"); } catch {} }}>🔗 share</button>
+        </div>
         <div className="files-stats">
           <BarChart3 size={11} /> {files.length} файлов · {stats.totalLines.toLocaleString("ru-RU")} строк · {(stats.totalBytes/1024).toFixed(1)} KB{filter ? ` · фильтр: ${filteredFiles.length}/${files.length}` : ""}
         </div>

@@ -4,7 +4,7 @@ import { useSessions } from "../context/SessionsContext.jsx";
 import MessageBubble from "./MessageBubble.jsx";
 import ChatInput from "./ChatInput.jsx";
 import EmptyState from "./EmptyState.jsx";
-import { RotateCcw, Download, CheckCircle2, Search, GitFork, X } from "lucide-react";
+import { RotateCcw, Download, CheckCircle2, Search, GitFork, X, Keyboard, Upload } from "lucide-react";
 
 const TOOL_LABELS = {
   write_file: "создание файла",
@@ -24,10 +24,13 @@ const TOOL_LABELS = {
 };
 
 export default function ChatPanel() {
-  const { messages, isStreaming, retryLastTurn, exportChat, usage } = useChat();
+  const { messages, isStreaming, retryLastTurn, exportChat, exportPdf, usage, importChat } = useChat();
   const { newChat, setActiveSession } = useSessions();
   const [search, setSearch] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
+  const [regexSearch, setRegexSearch] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const rafRef = useRef(null);
@@ -35,9 +38,15 @@ export default function ChatPanel() {
 
   const filtered = useMemo(() => {
     if (!search.trim()) return messages;
+    if (regexSearch) {
+      try {
+        const re = new RegExp(search, "i");
+        return messages.filter((m) => re.test(m.content || "") || re.test(m.reasoning || ""));
+      } catch { return messages; }
+    }
     const q = search.toLowerCase();
     return messages.filter((m) => (m.content || "").toLowerCase().includes(q) || (m.reasoning || "").toLowerCase().includes(q));
-  }, [messages, search]);
+  }, [messages, search, regexSearch]);
 
   const forkFrom = useCallback(async (id) => {
     const idx = messages.findIndex((m) => m.id === id);
@@ -97,7 +106,8 @@ export default function ChatPanel() {
             {searchOpen && (
               <div className="chat-search">
                 <Search size={12} />
-                <input autoFocus placeholder="Поиск в чате…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <input autoFocus placeholder={regexSearch ? "Рег. выражение…" : "Поиск в чате…"} value={search} onChange={(e) => setSearch(e.target.value)} />
+                <button className={`icon-btn ${regexSearch ? "icon-btn-active" : ""}`} title="Режим регулярного выражения" onClick={() => setRegexSearch((v) => !v)}>.*</button>
                 <button className="icon-btn" onClick={() => { setSearch(""); setSearchOpen(false); }}><X size={12} /></button>
               </div>
             )}
@@ -107,11 +117,21 @@ export default function ChatPanel() {
                 {(usage.prompt_tokens + usage.completion_tokens).toLocaleString("ru-RU")} ток
               </span>
             )}
+            <button className="icon-btn" title="Импортировать чат (JSON)" aria-label="Импорт" onClick={() => fileInputRef.current?.click()}>
+              <Upload size={15} />
+            </button>
+            <input ref={fileInputRef} type="file" accept="application/json" style={{ display: "none" }} onChange={(e) => { const f = e.target.files?.[0]; if (f) importChat(f); e.target.value = ""; }} />
             <button className="icon-btn" title="Повторить последний запрос" aria-label="Повторить" onClick={retryLastTurn}>
               <RotateCcw size={15} />
             </button>
             <button className="icon-btn" title="Экспортировать чат (Markdown)" aria-label="Экспорт" onClick={exportChat}>
               <Download size={15} />
+            </button>
+            <button className="icon-btn" title="Экспорт в PDF (печать)" aria-label="PDF" onClick={exportPdf}>
+              <span style={{ fontSize: 11 }}>PDF</span>
+            </button>
+            <button className="icon-btn" title="Горячие клавиши" aria-label="Горячие клавиши" onClick={() => setShortcutsOpen((v) => !v)}>
+              <Keyboard size={15} />
             </button>
           </div>
         </div>
@@ -155,6 +175,21 @@ export default function ChatPanel() {
         )}
       </div>
       <ChatInput />
+      {shortcutsOpen && (
+        <div className="modal-backdrop" onClick={() => setShortcutsOpen(false)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-head"><span>Горячие клавиши</span><button className="icon-btn" onClick={() => setShortcutsOpen(false)}><X size={14} /></button></div>
+            <div className="shortcuts-list">
+              <div><kbd>Enter</kbd> отправить сообщение</div>
+              <div><kbd>Shift + Enter</kbd> новая строка</div>
+              <div><kbd>Ctrl/Cmd + S</kbd> сохранить файл</div>
+              <div><kbd>Esc</kbd> выход из полноэкранного превью</div>
+              <div><kbd>/</kbd> в поле ввода — слэш-команды</div>
+              <div><kbd>🔍</kbd> поиск по чату (режим .* — рег. выражения)</div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

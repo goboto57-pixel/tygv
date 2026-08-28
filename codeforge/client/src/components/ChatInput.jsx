@@ -56,7 +56,7 @@ function ModelPicker() {
 }
 
 export default function ChatInput() {
-  const { sendMessage, isStreaming, stopStreaming } = useChat();
+  const { sendMessage, isStreaming, stopStreaming, getRecentPrompts } = useChat();
   const { uploadFiles, files } = useFiles();
   const { settings } = useSettings();
   const { notify } = useUI();
@@ -70,8 +70,10 @@ export default function ChatInput() {
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
   const mediaRecorderRef = useRef(null);
-  const audioChunksRef = useRef([]);
+  const audioChunksRef = useRef(null);
   const streamRef = useRef(null);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const recentPrompts = recentOpen ? getRecentPrompts() : [];
 
   const autoResize = useCallback(() => {
     const el = textareaRef.current;
@@ -364,6 +366,15 @@ export default function ChatInput() {
 
       <div className="chat-input-footer">
         <ModelPicker />
+        <button className="chat-input-recent" title="Недавние запросы" onClick={() => setRecentOpen((v) => !v)}>↺ недавние</button>
+        {recentOpen && (
+          <div className="recent-prompts-pop">
+            {recentPrompts.length === 0 && <div className="recent-empty">Нет недавних запросов</div>}
+            {recentPrompts.map((p, i) => (
+              <button key={i} className="recent-prompt-item" onClick={() => { setValue(p); setRecentOpen(false); requestAnimationFrame(autoResize); }}>{p.slice(0, 80)}</button>
+            ))}
+          </div>
+        )}
         <span className="chat-input-footer-sep">/</span>
         <span className="chat-input-footer-project">Default Project</span>
       </div>

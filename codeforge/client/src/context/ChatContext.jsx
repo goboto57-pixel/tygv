@@ -425,6 +425,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
     const nextHistory = [...currentMessages, userMsg];
     messagesRef.current = nextHistory;
     setMessages(nextHistory);
+    pushRecentPrompt(text);
     // Save immediately so a tab/browser crash does not erase the prompt.
     void persistNow(nextHistory);
     setPendingPlan(null);
@@ -456,7 +457,9 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         images: hasImages ? images.map((img) => ({ dataUrl: img.dataUrl, name: img.name })) : undefined,
         memoryKey: getWorkspaceId(),
         runId,
-        requirePlanApproval: !!settings.planApproval
+        requirePlanApproval: !!settings.planApproval,
+        circuitBreaker: settings.circuitBreaker !== false,
+        budgetPause: settings.budgetPause === true
       }
     });
   }, [openStream, chatId, notify, persistNow, settings.model, settings.mode, settings.requireApproval, settings.autoRollback]);
@@ -545,6 +548,67 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
     void persistNow([]);
   }, [persistNow]);
 
+  const deleteMessage = useCallback((id) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    void persistNow(messagesRef.current.filter((m) => m.id !== id));
+  }, [persistNow]);
+
+  const togglePin = useCallback((id) => {
+    setMessages((prev) => prev.map((m) => m.id === id ? { ...m, pinned: !m.pinned } : m));
+    void persistNow(messagesRef.current.map((m) => m.id === id ? { ...m, pinned: !m.pinned } : m));
+  }, [persistNow]);
+
+  const toggleBookmark = useCallback((id) => {
+    setMessages((prev) => prev.map((m) => m.id === id ? { ...m, bookmarked: !m.bookmarked } : m));
+    void persistNow(messagesRef.current.map((m) => m.id === id ? { ...m, bookmarked: !m.bookmarked } : m));
+  }, [persistNow]);
+
+  const importChat = useCallback((file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result));
+        const msgs = Array.isArray(data.uiMessages) ? data.uiMessages : Array.isArray(data.messages) ? data.messages : [];
+        if (!msgs.length) { notify("Файл не содержит сообщений", "error"); return; }
+        setMessages(msgs.map((m) => ({ ...m, id: m.id || uuid() })));
+        if (Array.isArray(data.files)) setFiles(data.files);
+        void persistNow(msgs);
+        notify(`Импортировано ${msgs.length} сообщений`, "success");
+      } catch (e) { notify(`Ошибка импорта: ${e.message}`, "error"); }
+    };
+    reader.readAsText(file);
+  }, [notify, persistNow, setFiles]);
+
+  const exportPdf = useCallback(() => {
+    const msgs = messagesRef.current;
+    if (!msgs.length) { notify("Чат пуст", "info"); return; }
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>CodeForge Chat</title><style>body{font-family:sans-serif;padding:24px;max-width:760px;margin:auto}h2{color:#333}.u{color:#2563eb}.a{color:#111}.m{margin:14px 0;padding:10px 14px;border-radius:8px;background:#f6f8fa}pre{background:#111;color:#eee;padding:10px;border-radius:6px;overflow:auto}</style></head><body><h1>Экспорт чата CodeForge</h1>${msgs.map((m) => `<div class="m ${m.role === "user" ? "u" : "a"}"><h2>${m.role === "user" ? "Пользователь" : "CodeForge"}</h2>${(m.content || "").replace(/</g, "&lt;")}</div>`).join("")}</body></html>`;
+    const blob = new Blob([html], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    const w = window.open(url, "_blank");
+    setTimeout(() => { try { w?.focus(); w?.print(); } catch {} }, 400);
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }, [notify]);
+
+  const mergeFork = useCallback((otherMessages) => {
+    if (!Array.isArray(otherMessages) || !otherMessages.length) return;
+    setMessages((prev) => [...prev, ...otherMessages.map((m) => ({ ...m, id: m.id || uuid() }))]);
+    notify("Ветка слита в текущий чат", "success");
+  }, [notify]);
+
+  const pushRecentPrompt = useCallback((text) => {
+    if (!text?.trim()) return;
+    try {
+      const key = "codeforge_recent_prompts";
+      const arr = JSON.parse(localStorage.getItem(key) || "[]").filter((p) => p !== text);
+      arr.unshift(text);
+      localStorage.setItem(key, JSON.stringify(arr.slice(0, 20)));
+    } catch {}
+  }, []);
+  const getRecentPrompts = useCallback(() => {
+    try { return JSON.parse(localStorage.getItem("codeforge_recent_prompts") || "[]"); } catch { return []; }
+  }, []);
+
   // Auto-resume an in-flight server job when (re)opening a chat: if we closed
   // the tab or navigated away mid-run, the agent kept working server-side and
   // we just need to re-attach to its event stream. The job is fully detached,
@@ -560,7 +624,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
     if (runId) void resumeRun(runId);
   }, [chatId, sessionLoaded, resumeRun]);
 
-  const value = useMemo(() => ({ messages, setMessages, isStreaming, pendingPlan, setPendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, clearMessages, persistNow }), [messages, isStreaming, pendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, clearMessages, persistNow]);
+  const value = useMemo(() => ({ messages, setMessages, isStreaming, pendingPlan, setPendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, exportPdf, clearMessages, persistNow, deleteMessage, togglePin, toggleBookmark, importChat, mergeFork, pushRecentPrompt, getRecentPrompts }), [messages, isStreaming, pendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, exportPdf, clearMessages, persistNow, deleteMessage, togglePin, toggleBookmark, importChat, mergeFork, pushRecentPrompt, getRecentPrompts]);
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
 
