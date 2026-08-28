@@ -39,8 +39,10 @@ app.use(
     maxAge: 86400
   })
 );
-app.use(express.json({ limit: "1mb" }));
-app.use(express.urlencoded({ extended: true, limit: "1mb" }));
+// Agent turns can carry large file trees, so allow a generous body size.
+// (Render's default 100kb proxy limit is raised via express limit here.)
+app.use(express.json({ limit: "12mb" }));
+app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
 // Required for @webcontainer/api in the client (SharedArrayBuffer / cross-
 // origin isolation). "credentialless" rather than "require-corp": the latter
@@ -84,8 +86,16 @@ const chatLimiter = rateLimit({
   }
 });
 
-// Request timeout for SSE and large uploads
+// Request timeout for SSE and large uploads. The /chat/stream SSE connection
+// is only a *subscriber* to a detached server-side job that may run for many
+// minutes — never time it out, or the live display would freeze while the
+// agent keeps working. We disable the timeout purely for that endpoint.
 app.use((req, res, next) => {
+  if (req.path === "/api/chat/stream" || req.path.startsWith("/api/chat/abort")) {
+    req.setTimeout(0);
+    res.setTimeout(0);
+    return next();
+  }
   req.setTimeout(120000);
   res.setTimeout(120000);
   next();
