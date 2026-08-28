@@ -1,0 +1,111 @@
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { File, Search } from "lucide-react";
+import { useApp } from "../context/AppContext.jsx";
+
+export default function FileSwitcher() {
+  const { files, openFileTab } = useApp();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "p") {
+        e.preventDefault();
+        if (files.length === 0) return;
+        setOpen((o) => !o);
+      }
+      if (e.key === "Escape") setOpen(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [files.length]);
+
+  useEffect(() => {
+    if (open) {
+      setQuery("");
+      setActiveIdx(0);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+  }, [open]);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return files.slice(0, 30);
+    const q = query.toLowerCase();
+    return files.filter((f) => f.path.toLowerCase().includes(q)).slice(0, 30);
+  }, [files, query]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.min(i + 1, results.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const f = results[activeIdx];
+      if (f) {
+        openFileTab(f.path);
+        setOpen(false);
+      }
+    }
+  };
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.div
+            className="palette-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setOpen(false)}
+          />
+          <motion.div
+            className="command-palette"
+            initial={{ opacity: 0, y: -12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+          >
+            <div className="command-palette-input">
+              <Search size={16} />
+              <input
+                ref={inputRef}
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setActiveIdx(0);
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Быстрый переход к файлу..."
+              />
+              <kbd>Esc</kbd>
+            </div>
+            <div className="command-palette-list">
+              {results.length === 0 && <div className="command-palette-empty">Файлы не найдены</div>}
+              {results.map((f, i) => (
+                <button
+                  key={f.path}
+                  className={`command-palette-item ${i === activeIdx ? "active" : ""}`}
+                  onMouseEnter={() => setActiveIdx(i)}
+                  onClick={() => {
+                    openFileTab(f.path);
+                    setOpen(false);
+                  }}
+                >
+                  <File size={14} />
+                  <span>{f.path}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}
