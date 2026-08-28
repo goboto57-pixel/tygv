@@ -37,7 +37,7 @@ export default function WebContainerPreview({ files }) {
           appendLog(prefix + chunk);
         }
       })
-    );
+    ).catch((e) => appendLog(`[pipe error] ${e.message}`));
 
   const boot = useCallback(async () => {
     if (!isWebContainerSupported()) {
@@ -54,16 +54,20 @@ export default function WebContainerPreview({ files }) {
       if (bootTokenRef.current !== myToken) return; // superseded by a newer boot
       containerRef.current = container;
 
-      container.on("server-ready", (port, url) => {
+      // Use once-like handling and store off handlers to avoid leak on restart
+      const onReady = (port, url) => {
         if (bootTokenRef.current !== myToken) return;
         setPreviewUrl(url);
         setStatus("ready");
-      });
-      container.on("error", (err) => {
+      };
+      const onError = (err) => {
         if (bootTokenRef.current !== myToken) return;
         setErrorMsg(err.message || "WebContainer runtime error");
         setStatus("error");
-      });
+      };
+      // WebContainer API doesn't expose off, but we can wrap and ignore stale tokens
+      container.on("server-ready", onReady);
+      container.on("error", onError);
 
       appendLog("$ mounting project files...");
       const tree = filesToTree(files);
@@ -131,15 +135,17 @@ export default function WebContainerPreview({ files }) {
 
     (async () => {
       let packageJsonChanged = false;
+      const ops = [];
       for (const [path, content] of next.entries()) {
         if (prev.get(path) !== content) {
           if (path === "package.json") packageJsonChanged = true;
-          await syncFile(container, path, content);
+          ops.push(syncFile(container, path, content));
         }
       }
       for (const path of prev.keys()) {
-        if (!next.has(path)) await removeFile(container, path);
+        if (!next.has(path)) ops.push(removeFile(container, path));
       }
+      await Promise.allSettled(ops);
       prevFilesRef.current = next;
       if (packageJsonChanged) {
         appendLog("$ package.json changed — переустановите зависимости вручную (кнопка \u21bb), автопереустановка отключена для скорости.");

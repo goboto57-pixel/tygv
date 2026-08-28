@@ -4,7 +4,8 @@ import { File, Folder, FolderOpen } from "lucide-react";
 function buildTree(files) {
   const root = { name: "", children: {}, isFile: false };
   for (const f of files) {
-    const parts = f.path.split("/");
+    const parts = f.path.split("/").filter(Boolean);
+    if (parts.length === 0) continue;
     let node = root;
     parts.forEach((part, i) => {
       const isFile = i === parts.length - 1;
@@ -17,7 +18,7 @@ function buildTree(files) {
   return root;
 }
 
-function TreeNode({ node, depth, activeFile, onSelect }) {
+function TreeNode({ node, depth, activeFile, onSelect, parentPath }) {
   const entries = Object.values(node.children).sort((a, b) => {
     if (a.isFile !== b.isFile) return a.isFile ? 1 : -1;
     return a.name.localeCompare(b.name);
@@ -25,8 +26,10 @@ function TreeNode({ node, depth, activeFile, onSelect }) {
 
   return (
     <>
-      {entries.map((child) => (
-        <div key={child.name + depth}>
+      {entries.map((child) => {
+        const fullPath = parentPath ? `${parentPath}/${child.name}` : child.name;
+        return (
+        <div key={fullPath}>
           {child.isFile ? (
             <button
               className={`tree-file ${activeFile === child.path ? "active" : ""}`}
@@ -42,11 +45,12 @@ function TreeNode({ node, depth, activeFile, onSelect }) {
                 <FolderOpen size={13} className="tree-icon tree-icon-folder" />
                 <span>{child.name}</span>
               </div>
-              <TreeNode node={child} depth={depth + 1} activeFile={activeFile} onSelect={onSelect} />
+              <TreeNode node={child} depth={depth + 1} activeFile={activeFile} onSelect={onSelect} parentPath={fullPath} />
             </div>
           )}
         </div>
-      ))}
+        );
+      })}
     </>
   );
 }
@@ -62,7 +66,7 @@ export default function FileTree({ files, activeFile, onSelect }) {
         <span className="file-count">{files.length}</span>
       </div>
       <div className="file-tree-list">
-        <TreeNode node={tree} depth={0} activeFile={activeFile} onSelect={onSelect} />
+        <TreeNode node={tree} depth={0} activeFile={activeFile} onSelect={onSelect} parentPath="" />
       </div>
     </div>
   );

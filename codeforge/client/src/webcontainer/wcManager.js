@@ -22,9 +22,17 @@ export async function getContainer() {
   if (containerInstance) return containerInstance;
   if (!bootPromise) {
     const { WebContainer } = await import("@webcontainer/api");
-    bootPromise = WebContainer.boot();
+    bootPromise = WebContainer.boot().catch((e) => {
+      bootPromise = null;
+      throw e;
+    });
   }
-  containerInstance = await bootPromise;
+  try {
+    containerInstance = await bootPromise;
+  } catch (e) {
+    bootPromise = null;
+    throw e;
+  }
   return containerInstance;
 }
 
@@ -36,21 +44,32 @@ export function filesToTree(files) {
     if (typeof f.content !== "string") continue; // skip binary/URL-only attachments
     const parts = f.path.split("/").filter(Boolean);
     let node = root;
-    parts.forEach((part, i) => {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
       const isLeaf = i === parts.length - 1;
       if (isLeaf) {
+        // if intermediate node already exists as directory, keep it but add file
+        if (node[part] && node[part].directory && !node[part].file) {
+          // conflict: path was previously a directory, now file - overwrite
+        }
         node[part] = { file: { contents: f.content } };
       } else {
-        node[part] = node[part] || { directory: {} };
+        if (node[part] && node[part].file) {
+          // conflict: file exists where directory needed - convert to directory
+          node[part] = { directory: {} };
+        } else {
+          node[part] = node[part] || { directory: {} };
+        }
         node = node[part].directory;
       }
-    });
+    }
   }
   return root;
 }
 
 function dirname(path) {
-  const parts = path.split("/");
+  if (!path || path === ".") return "";
+  const parts = path.split("/").filter(Boolean);
   parts.pop();
   return parts.join("/");
 }
