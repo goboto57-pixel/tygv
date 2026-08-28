@@ -33,14 +33,13 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
     throw new Error("MISTRAL_API_KEY is not configured on the server.");
   }
 
-  // Economy: cap output to save tokens & speed up simple tasks (was 8000)
-  const isSimpleTask = messages.some((m) => typeof m.content === "string" && /(простой сайт|лендинг|одностраничник|landing|simple site)/i.test(m.content));
+  // Economy: general cap to save tokens & speed up (was 8000) — for all tasks
   const body = {
     model: resolvedModel,
     messages,
     stream: true,
     temperature: 0.2,
-    max_tokens: isSimpleTask ? 4000 : 6000
+    max_tokens: 4500
   };
 
   if (tools && tools.length > 0) {

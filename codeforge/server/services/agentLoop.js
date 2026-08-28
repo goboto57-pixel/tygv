@@ -156,14 +156,12 @@ export async function runAgentLoop({
 
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
   let loopCount = 0;
-  // Economy: simple site/landing must be fast — cap loops lower for trivial prompts
-  const isSimplePrompt = /(простой сайт|одностраничник|лендинг|simple site|landing page|одностраничный)/i.test(rawLastPrompt);
-  const MAX_LOOPS = isSimplePrompt ? 15 : 30;
-  // Helper: trim old history to save tokens (keep system + recent 14)
+  // Economy: general — faster & cheaper for all tasks (was 40)
+  const MAX_LOOPS = 22;
+  // Helper: trim old history to save tokens (keep system + recent 12) — general, not only sites
   const trimForEconomy = (msgs) => {
-    if (msgs.length <= 18) return msgs;
-    // keep system + last 14 messages — preserves recent tool pairs, drops stale middle
-    return [msgs[0], ...msgs.slice(-14)];
+    if (msgs.length <= 16) return msgs;
+    return [msgs[0], ...msgs.slice(-12)];
   };
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
