@@ -156,9 +156,15 @@ export async function runAgentLoop({
 
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
   let loopCount = 0;
-  // Economy: general — faster & cheaper for all tasks (was 40)
-  const MAX_LOOPS = 22;
-  // Helper: trim old history to save tokens (keep system + recent 12) — general, not only sites
+  // Economy: adaptive loops — trivial fix 10, simple site 14, site/app 22, big 28
+  const getAdaptiveLoops = (prompt) => {
+    if (/(фикс|поправь|исправь|мелкий|one.?line|small fix)/i.test(prompt) && prompt.length < 120) return 10;
+    if (/(простой сайт|одностраничник|лендинг|landing)/i.test(prompt)) return 14;
+    if (/(сайт|приложение|app|website|страниц)/i.test(prompt)) return 22;
+    if (/(большой|сложный|enterprise|full.?stack|многостраничный)/i.test(prompt)) return 28;
+    return 20;
+  };
+  const MAX_LOOPS = getAdaptiveLoops(rawLastPrompt);
   const trimForEconomy = (msgs) => {
     if (msgs.length <= 16) return msgs;
     return [msgs[0], ...msgs.slice(-12)];

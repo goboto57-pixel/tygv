@@ -452,6 +452,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         mode: settings.mode || "single",
         requireApproval: !!settings.requireApproval,
         autoRollback: settings.autoRollback !== false,
+        enhance: settings.enhancePrompt !== false,
         images: hasImages ? images.map((img) => ({ dataUrl: img.dataUrl, name: img.name })) : undefined,
         memoryKey: getWorkspaceId(),
         runId,

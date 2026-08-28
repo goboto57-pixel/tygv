@@ -33,13 +33,19 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
     throw new Error("MISTRAL_API_KEY is not configured on the server.");
   }
 
-  // Economy: general cap to save tokens & speed up (was 8000) — for all tasks
+  // Economy: adaptive cap — fix 1500, simple site 3500, general 4500, big 6000
+  const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
+  const lastStr = typeof lastUser === "string" ? lastUser : Array.isArray(lastUser) ? lastUser.map((p) => p.text || "").join(" ") : "";
+  let adaptiveMax = 4500;
+  if (/(фикс|поправь|исправь|мелкий|one.?line|small fix)/i.test(lastStr) && lastStr.length < 120) adaptiveMax = 1500;
+  else if (/(простой сайт|одностраничник|лендинг|landing)/i.test(lastStr)) adaptiveMax = 3500;
+  else if (/(большой|сложный|enterprise|многостраничный)/i.test(lastStr)) adaptiveMax = 6000;
   const body = {
     model: resolvedModel,
     messages,
     stream: true,
     temperature: 0.2,
-    max_tokens: 4500
+    max_tokens: adaptiveMax
   };
 
   if (tools && tools.length > 0) {

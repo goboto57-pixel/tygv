@@ -56,7 +56,8 @@ function defaultSettings() {
     mode: "single",
     requireApproval: false,
     planApproval: true,
-    autoRollback: true
+    autoRollback: true,
+    enhancePrompt: true
   };
 }
 

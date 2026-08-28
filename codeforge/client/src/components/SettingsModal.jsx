@@ -181,6 +181,14 @@ export default function SettingsModal() {
                   />
                   <span>Enter отправляет, Shift+Enter — новая строка</span>
                 </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={settings.enhancePrompt !== false}
+                    onChange={(e) => updateSettings({ enhancePrompt: e.target.checked })}
+                  />
+                  <span>Улучшать промпт автоматически (для дизайна/сайтов) — экономит токены если выключить</span>
+                </label>
               </section>
 
               <section className="settings-section">

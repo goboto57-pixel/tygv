@@ -26,4 +26,5 @@ export const toolDefinitions = [
   { type: "function", function: { name: "get_project_stats", description: "Stats: files/lines/size.", parameters: { type: "object", properties: {}, required: [] } } },
   { type: "function", function: { name: "todo_scan", description: "Scan TODO/FIXME.", parameters: { type: "object", properties: {}, required: [] } } },
   { type: "function", function: { name: "format_code", description: "Format file.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } },
+  { type: "function", function: { name: "apply_patch", description: "Apply multi-edit patch.", parameters: { type: "object", properties: { path: { type: "string" }, edits: { type: "array", items: { type: "object", properties: { old_text: { type: "string" }, new_text: { type: "string" } }, required: ["old_text", "new_text"] } } }, required: ["path", "edits"] } },
 ];

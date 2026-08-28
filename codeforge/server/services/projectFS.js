@@ -86,12 +86,16 @@ function extractReadable(html, prompt) {
 }
 
 
-// Per-request embeddings cache, keyed by fsMap instance. A fresh fsMap is
-// created for every /chat/stream call (see agentLoop.js), so this naturally
-// expires with the request — no cross-user/session leakage, no manual
-// invalidation needed when files change mid-turn (the index is just
-// rebuilt lazily the next time semantic_search runs against the same fsMap).
+// Per-request caches keyed by fsMap instance — naturally expires with request
 const embeddingIndexCache = new WeakMap();
+const readCache = new WeakMap(); // fsMap -> Map(path -> content) for read_file
+function getReadCache(fsMap) {
+  if (!readCache.has(fsMap)) readCache.set(fsMap, new Map());
+  return readCache.get(fsMap);
+}
+function invalidateReadCache(fsMap) {
+  readCache.delete(fsMap);
+}
 
 const CODE_EXTENSIONS = /\.(js|jsx|ts|tsx|py|java|go|rs|rb|php|c|cpp|h|hpp|cs|html|css|scss|json|md|vue|svelte)$/i;
 const CHUNK_LINES = 40;
@@ -343,16 +347,16 @@ export async function executeTool(toolName, args, fsMap) {
     }
 
     case "read_file": {
+      const cache = getReadCache(fsMap);
+      if (cache.has(args.path)) return { result: cache.get(args.path), cached: true };
       const content = fsMap.get(args.path);
       if (content === undefined) {
         return { error: `File not found: ${args.path}` };
       }
-      // economy: truncate huge files to save tokens
       const max = 6000;
-      if (content.length > max) {
-        return { result: content.slice(0, max) + `\n…[обрезано ${content.length - max} символов — запроси конкретный диапазон]` };
-      }
-      return { result: content };
+      const out = content.length > max ? content.slice(0, max) + `\n…[обрезано ${content.length - max} символов — запроси конкретный диапазон]` : content;
+      cache.set(args.path, out);
+      return { result: out };
     }
 
     case "read_files": {
@@ -378,7 +382,7 @@ export async function executeTool(toolName, args, fsMap) {
       if (args.content.length > 1024 * 1024) return { error: "content too large (max 1MB)" };
       const existed = fsMap.has(p);
       fsMap.set(p, args.content);
-      embeddingIndexCache.delete(fsMap);
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
       return { result: `${existed ? "Updated" : "Created"} file: ${p}`, fileChanged: p };
     }
 
@@ -405,7 +409,7 @@ export async function executeTool(toolName, args, fsMap) {
       }
       const newContent = content.replace(oldText, args.new_text ?? "");
       fsMap.set(args.path, newContent);
-      embeddingIndexCache.delete(fsMap);
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
       return { result: `Edited file: ${args.path}`, fileChanged: args.path };
     }
 
@@ -414,7 +418,7 @@ export async function executeTool(toolName, args, fsMap) {
         return { error: `File not found: ${args.path}` };
       }
       fsMap.delete(args.path);
-      embeddingIndexCache.delete(fsMap);
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
       return { result: `Deleted file: ${args.path}`, fileDeleted: args.path };
     }
 
@@ -428,7 +432,7 @@ export async function executeTool(toolName, args, fsMap) {
       const content = fsMap.get(args.old_path);
       fsMap.delete(args.old_path);
       fsMap.set(args.new_path, content);
-      embeddingIndexCache.delete(fsMap);
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
       return {
         result: `Renamed ${args.old_path} -> ${args.new_path}`,
         fileDeleted: args.old_path,
@@ -610,6 +614,7 @@ export async function executeTool(toolName, args, fsMap) {
       if (!fsMap.has(src)) return { error: `Source not found: ${src}` };
       if (src === dst) return { error: "source and destination are the same" };
       fsMap.set(dst, fsMap.get(src));
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
       return { result: `Duplicated ${src} -> ${dst}`, fileChanged: dst };
     }
 
@@ -617,7 +622,7 @@ export async function executeTool(toolName, args, fsMap) {
       const p = (args.path || "").replace(/^\/+/, "").replace(/\/+$/, "");
       if (!p) return { error: "path required" };
       const keep = `${p}/.keep`;
-      if (!fsMap.has(keep)) fsMap.set(keep, "");
+      if (!fsMap.has(keep)) { fsMap.set(keep, ""); embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap); }
       return { result: `Folder created: ${p}`, fileChanged: keep };
     }
 
@@ -670,15 +675,39 @@ export async function executeTool(toolName, args, fsMap) {
       if (!p) return { error: "path required" };
       const content = fsMap.get(p);
       if (content === undefined) return { error: `File not found: ${p}` };
-      // very small formatter: trim trailing whitespace, ensure final newline, collapse multiple blank lines to max 2
       let out = content.split("\n").map((l) => l.replace(/\s+$/g, "")).join("\n");
       out = out.replace(/\n{3,}/g, "\n\n");
       if (out.length && !out.endsWith("\n")) out += "\n";
       if (out !== content) {
         fsMap.set(p, out);
+        embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
         return { result: `Formatted ${p} (${content.length} -> ${out.length} bytes)`, fileChanged: p };
       }
       return { result: `Already formatted: ${p}` };
+    }
+
+    case "apply_patch": {
+      const p = (args.path || "").replace(/^\/+/, "");
+      if (!p) return { error: "path required" };
+      const content = fsMap.get(p);
+      if (content === undefined) return { error: `File not found: ${p}` };
+      const edits = Array.isArray(args.edits) ? args.edits : [];
+      if (!edits.length) return { error: "edits array required" };
+      let cur = content;
+      for (let i = 0; i < edits.length; i++) {
+        const { old_text, new_text } = edits[i] || {};
+        if (typeof old_text !== "string" || !old_text) return { error: `edits[${i}].old_text required` };
+        if (cur.indexOf(old_text) === -1) return { error: `edits[${i}] old_text not found` };
+        // ensure unique for safety
+        if (cur.indexOf(old_text) !== cur.lastIndexOf(old_text)) return { error: `edits[${i}] old_text not unique` };
+        cur = cur.replace(old_text, new_text ?? "");
+      }
+      if (cur !== content) {
+        fsMap.set(p, cur);
+        embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
+        return { result: `Patched ${p} with ${edits.length} edit(s)`, fileChanged: p };
+      }
+      return { result: `No changes for ${p}` };
     }
 
     default:
