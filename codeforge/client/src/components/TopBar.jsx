@@ -53,7 +53,7 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
           </button>
         )}
 
-        <div className="usage-pill" role="status" aria-label={`Использовано токенов: ${totalTokens.toLocaleString("ru-RU")}, стоимость: $${estCost}`}>
+        <div className="usage-pill" role="status" aria-label={`Промпт ${usage.prompt_tokens.toLocaleString("ru-RU")} + ответ ${usage.completion_tokens.toLocaleString("ru-RU")} = ${totalTokens.toLocaleString("ru-RU")} токенов, ~$${estCost}`} title={`Промпт: ${usage.prompt_tokens.toLocaleString("ru-RU")} · Ответ: ${usage.completion_tokens.toLocaleString("ru-RU")} · Всего: ${totalTokens.toLocaleString("ru-RU")} · ~$${estCost}`}>
           <Gauge size={13} aria-hidden="true" />
           <span>{totalTokens.toLocaleString("ru-RU")}</span>
           <span className="usage-cost">${estCost}</span>

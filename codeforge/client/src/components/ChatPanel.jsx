@@ -1,9 +1,10 @@
-import React, { useRef, useEffect, useCallback } from "react";
+import React, { useRef, useEffect, useCallback, useState, useMemo } from "react";
 import { useChat } from "../context/ChatContext.jsx";
+import { useSessions } from "../context/SessionsContext.jsx";
 import MessageBubble from "./MessageBubble.jsx";
 import ChatInput from "./ChatInput.jsx";
 import EmptyState from "./EmptyState.jsx";
-import { RotateCcw, Download, CheckCircle2 } from "lucide-react";
+import { RotateCcw, Download, CheckCircle2, Search, GitFork, X } from "lucide-react";
 
 const TOOL_LABELS = {
   write_file: "создание файла",
@@ -24,10 +25,33 @@ const TOOL_LABELS = {
 
 export default function ChatPanel() {
   const { messages, isStreaming, retryLastTurn, exportChat, usage } = useChat();
+  const { newChat, setActiveSession } = useSessions();
+  const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const scrollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const rafRef = useRef(null);
   const lastMessage = messages[messages.length - 1];
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return messages;
+    const q = search.toLowerCase();
+    return messages.filter((m) => (m.content || "").toLowerCase().includes(q) || (m.reasoning || "").toLowerCase().includes(q));
+  }, [messages, search]);
+
+  const forkFrom = useCallback(async (id) => {
+    const idx = messages.findIndex((m) => m.id === id);
+    if (idx === -1) return;
+    const slice = messages.slice(0, idx + 1);
+    const newId = await newChat();
+    // apply slice to new session after creation
+    setTimeout(() => {
+      try {
+        setActiveSession((prev) => prev ? { ...prev, messages: slice, uiMessages: slice } : prev);
+        localStorage.setItem(`codeforge_chat_${newId}`, JSON.stringify({ id: newId, title: slice.find((m) => m.role === "user")?.content?.slice(0, 60) || "Форк", messages: slice, uiMessages: slice, files: [] }));
+      } catch {}
+    }, 300);
+  }, [messages, newChat, setActiveSession]);
 
   const phase = (() => {
     if (!isStreaming || !lastMessage || lastMessage.role !== "assistant") return null;
@@ -70,8 +94,16 @@ export default function ChatPanel() {
         <div className="chat-toolbar">
           <span className="chat-toolbar-title">Чат</span>
           <div className="chat-toolbar-actions">
+            {searchOpen && (
+              <div className="chat-search">
+                <Search size={12} />
+                <input autoFocus placeholder="Поиск в чате…" value={search} onChange={(e) => setSearch(e.target.value)} />
+                <button className="icon-btn" onClick={() => { setSearch(""); setSearchOpen(false); }}><X size={12} /></button>
+              </div>
+            )}
+            <button className="icon-btn" title="Поиск" onClick={() => setSearchOpen((v) => !v)}><Search size={14} /></button>
             {usage.prompt_tokens + usage.completion_tokens > 0 && (
-              <span className="chat-toolbar-usage" title="Использовано токенов за этот сеанс">
+              <span className="chat-toolbar-usage" title={`Промпт ${usage.prompt_tokens} + ответ ${usage.completion_tokens} = ${usage.prompt_tokens + usage.completion_tokens} токенов`}>
                 {(usage.prompt_tokens + usage.completion_tokens).toLocaleString("ru-RU")} ток
               </span>
             )}
@@ -111,9 +143,13 @@ export default function ChatPanel() {
           <EmptyState />
         ) : (
           <div className="chat-messages" role="feed">
-            {messages.map((m) => (
-              <MessageBubble key={m.id} message={m} />
+            {(search.trim() ? filtered : messages).map((m) => (
+              <div key={m.id} className="msg-with-actions">
+                <MessageBubble message={m} />
+                <button className="msg-fork-btn" onClick={() => forkFrom(m.id)} title="Форкнуть с этого сообщения"><GitFork size={11} /> ветка</button>
+              </div>
             ))}
+            {search.trim() && filtered.length === 0 && <div className="chat-empty-search">Ничего не найдено</div>}
             <div ref={messagesEndRef} />
           </div>
         )}
