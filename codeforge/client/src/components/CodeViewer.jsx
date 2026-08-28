@@ -121,6 +121,7 @@ export default function CodeViewer({ path, content, prevContent }) {
   const [showMinimap, setShowMinimap] = useState(false);
   const [wrap, setWrap] = useState(false);
   const [fileSearch, setFileSearch] = useState("");
+  const [fontSize, setFontSize] = useState(13);
   const minimapContent = useMemo(() => {
     if (!content) return "";
     return content.slice(0, 2000).replace(/\t/g, "  ");
@@ -142,6 +143,9 @@ export default function CodeViewer({ path, content, prevContent }) {
       notify?.(`Ошибка скачивания: ${e.message}`, "error");
     }
   }, [content, path, notify]);
+  const copyPath = useCallback(async () => {
+    try { await navigator.clipboard.writeText(path || ""); notify?.("Путь скопирован", "success"); } catch {}
+  }, [path, notify]);
 
   return (
     <div className="code-viewer">
@@ -160,6 +164,8 @@ export default function CodeViewer({ path, content, prevContent }) {
             {fileSearch && <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>{(content.match(new RegExp(fileSearch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi")) || []).length}</span>}
             {fileSearch && <button className="icon-btn" onClick={() => setFileSearch("")} style={{ padding: 2 }}><XIcon size={10} /></button>}
           </div>
+          <input type="range" min="11" max="18" value={fontSize} onChange={(e) => setFontSize(Number(e.target.value))} style={{ width: 60 }} title={`Размер ${fontSize}px`} />
+          <button className="code-viewer-copy" onClick={copyPath} title="Копировать путь"><FileText size={12} /></button>
           {editing ? (
             <>
               <span className={`code-viewer-save-status code-viewer-save-status-${saveState}`}>
@@ -264,7 +270,7 @@ export default function CodeViewer({ path, content, prevContent }) {
               customStyle={{
                 margin: 0,
                 background: "transparent",
-                fontSize: "13px",
+                fontSize: fontSize + "px",
                 padding: "16px",
                 fontFamily: "JetBrains Mono, monospace",
                 whiteSpace: wrap ? "pre-wrap" : "pre",

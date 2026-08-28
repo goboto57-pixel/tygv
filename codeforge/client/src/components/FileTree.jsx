@@ -1,5 +1,14 @@
 import React, { useMemo } from "react";
-import { File, Folder, FolderOpen } from "lucide-react";
+import { File, Folder, FolderOpen, FileCode, FileJson, FileText, Image as ImageIcon, Braces } from "lucide-react";
+function fileIconByExt(name) {
+  const ext = name.split(".").pop().toLowerCase();
+  if (["js","jsx","ts","tsx"].includes(ext)) return FileCode;
+  if (["json","yml","yaml"].includes(ext)) return FileJson;
+  if (["md","txt"].includes(ext)) return FileText;
+  if (["png","jpg","jpeg","gif","svg","webp"].includes(ext)) return ImageIcon;
+  if (["html","css","scss"].includes(ext)) return Braces;
+  return File;
+}
 
 function buildTree(files) {
   const root = { name: "", children: {}, isFile: false };
@@ -31,14 +40,16 @@ function TreeNode({ node, depth, activeFile, onSelect, parentPath }) {
         return (
         <div key={fullPath}>
           {child.isFile ? (
+            {(() => { const Icon = fileIconByExt(child.name); return (
             <button
               className={`tree-file ${activeFile === child.path ? "active" : ""}`}
               style={{ paddingLeft: 12 + depth * 14 }}
               onClick={() => onSelect(child.path)}
             >
-              <File size={13} className="tree-icon" />
+              <Icon size={13} className="tree-icon" />
               <span>{child.name}</span>
             </button>
+            ); })()}
           ) : (
             <div>
               <div className="tree-folder" style={{ paddingLeft: 12 + depth * 14 }}>

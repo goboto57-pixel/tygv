@@ -192,18 +192,20 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             }} />
             <div className="editor-area">
               {breadcrumbs.length > 0 && (
-                <div className="breadcrumbs">
+                <div className="breadcrumbs" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 2, flex: 1 }}>
                   {breadcrumbs.map((part, i) => (
                     <React.Fragment key={i}>
                       {i > 0 && <span className="sep">/</span>}
                       <span onClick={() => {
                         const path = breadcrumbs.slice(0, i+1).join("/");
-                        // if intermediate is directory, do nothing, if file exists open it
                         const match = files.find(f=>f.path===path);
                         if (match) openFileTab(path);
-                      }}>{part}</span>
+                      }} style={{ cursor: "pointer" }}>{part}</span>
                     </React.Fragment>
                   ))}
+                  </div>
+                  <button className="icon-btn" onClick={async () => { try { await navigator.clipboard.writeText(activeFile || ""); notify?.("Путь скопирован", "success"); } catch {} }} title="Копировать путь" style={{ padding: 3 }}><FileText size={11} /></button>
                 </div>
               )}
               {openFiles.length > 0 && (

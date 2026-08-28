@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit, Pencil } from "lucide-react";
+import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit, Pencil, Copy, Pin, Trash2 } from "lucide-react";
 import ToolCallItem from "./ToolCallItem.jsx";
 import PlanCard from "./PlanCard.jsx";
 import SessionReportPanel from "./SessionReportPanel.jsx";

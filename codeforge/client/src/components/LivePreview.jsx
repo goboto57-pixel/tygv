@@ -87,6 +87,8 @@ export default function LivePreview({ files, activeFile }) {
   const [refreshKey, setRefreshKey] = useState(0);
   const [errors, setErrors] = useState([]);
   const [device, setDevice] = useState("desktop"); // desktop|tablet|mobile
+  const [isDark, setIsDark] = useState(false);
+  const [scale, setScale] = useState(100);
 
   useEffect(() => {
     const onMsg = (e) => {
@@ -183,17 +185,20 @@ export default function LivePreview({ files, activeFile }) {
     <div className="live-preview">
       <div className="live-preview-toolbar">
         <span className="live-preview-label">Превью</span>
-        <div className="live-preview-actions">
+        <div className="live-preview-actions" style={{ gap: 4, flexWrap: "wrap" }}>
           <button className={`icon-btn ${device === "mobile" ? "icon-btn-active" : ""}`} onClick={() => setDevice("mobile")} title="Mobile 375px">📱</button>
           <button className={`icon-btn ${device === "tablet" ? "icon-btn-active" : ""}`} onClick={() => setDevice("tablet")} title="Tablet 768px">📱</button>
           <button className={`icon-btn ${device === "desktop" ? "icon-btn-active" : ""}`} onClick={() => setDevice("desktop")} title="Desktop">🖥️</button>
+          <input type="range" min="50" max="150" value={scale} onChange={(e) => setScale(Number(e.target.value))} style={{ width: 60 }} title={`Масштаб ${scale}%`} />
+          <span style={{ fontSize: "10px", color: "var(--text-tertiary)", minWidth: 32 }}>{scale}%</span>
+          <button className={`icon-btn ${isDark ? "icon-btn-active" : ""}`} onClick={() => setIsDark((v) => !v)} title={isDark ? "Светлая тема превью" : "Тёмная тема превью"}>{isDark ? "🌙" : "☀️"}</button>
           <button className="icon-btn" onClick={copyUrl} title="Копировать URL превью"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
           <button className="icon-btn" onClick={toggleFullscreen} title="На весь экран"><Maximize2 size={14} /></button>
         </div>
       </div>
-      <div style={frameStyle}>{iframe}</div>
+      <div style={{ ...frameStyle, transform: `scale(${scale / 100})`, transformOrigin: "top center", background: isDark ? "#111" : "#fff" }}>{iframe}</div>
       {errors.length > 0 && (
         <div className="live-preview-errors">
           {errors.map((e, i) => (
