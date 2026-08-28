@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download } from "lucide-react";
+import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download, Github } from "lucide-react";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import FileTree from "./FileTree.jsx";
@@ -59,6 +59,27 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
     if (!toZip.length) { notify?.("Нет файлов", "info"); return; }
     const { exportZip } = await import("../utils/exportZip.js");
     exportZip(toZip, `codeforge-${clean || "project"}`, notify);
+  };
+  const importFromGithub = async () => {
+    const url = prompt("GitHub URL (https://github.com/user/repo или raw URL):");
+    if (!url) return;
+    try {
+      // try to fetch via raw content if github.com URL, else direct fetch
+      let rawUrl = url.trim();
+      if (rawUrl.includes("github.com")) {
+        const m = rawUrl.match(/github\.com\/([^\/]+)\/([^\/]+)/);
+        if (m) rawUrl = `https://raw.githubusercontent.com/${m[1]}/${m[2]}/main/README.md`;
+      }
+      const res = await fetch(rawUrl);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      const path = rawUrl.split("/").pop() || "imported.md";
+      setFiles((prev) => [...prev.filter((f) => f.path !== path), { path, content: text.slice(0, 200000) }]);
+      openFileTab(path);
+      notify?.(`Импортирован ${path}`, "success");
+    } catch (e) {
+      notify?.(`Импорт не удался: ${e.message}`, "error");
+    }
   };
   const createNewFile = () => {
     const name = prompt("Имя нового файла (например, src/utils.js):");
@@ -152,6 +173,7 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             <button className="icon-btn" onClick={deleteActive} title="Удалить"><Trash2 size={13} /></button>
             <button className="icon-btn" onClick={downloadActive} title="Скачать файл"><Download size={13} /></button>
             <button className="icon-btn" onClick={() => downloadFolder("")} title="Скачать проект ZIP"><Download size={13} /></button>
+            <button className="icon-btn" onClick={importFromGithub} title="Импорт с GitHub"><Github size={13} /></button>
           </div>
           <div className="files-templates">
             <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Шаблоны:</span>

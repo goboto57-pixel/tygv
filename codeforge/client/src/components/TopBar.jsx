@@ -58,6 +58,10 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
           <span>{totalTokens.toLocaleString("ru-RU")}</span>
           <span className="usage-cost">${estCost}</span>
         </div>
+        <div className="presence-pill" title="Вы + агент онлайн">
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--accent-success)", display: "inline-block" }} />
+          <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>2</span>
+        </div>
 
         <button
           className="icon-btn"
