@@ -20,6 +20,11 @@ export default function MessageBubble({ message }) {
     prevReasoningLen.current = message.reasoning?.length || 0;
   }, [message.reasoning, hasReasoning]);
 
+  const hasPlan = !!message.plan;
+  const hasTools = message.toolEvents && message.toolEvents.length > 0;
+  const isThinking = message.status === "thinking" && !message.content;
+  const showTyping = !message.content && !hasReasoning && !hasTools && !hasPlan && !isThinking;
+
   if (isUser) {
     return (
       <motion.div
@@ -56,11 +61,17 @@ export default function MessageBubble({ message }) {
         <Sparkles size={14} />
       </div>
       <div className="msg-bubble msg-bubble-assistant">
+        {isThinking && (
+          <div className="agent-status" style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "var(--accent-bg)", borderRadius: "8px", marginBottom: hasReasoning || hasTools || hasPlan ? 10 : 0, fontSize: "12px", color: "var(--text-secondary)" }}>
+            <span className="cf-live-dot" style={{ width: 8, height: 8 }} />
+            <span>Агент работает{message.statusText ? `: ${message.statusText}` : hasReasoning ? " — анализирует..." : hasTools ? " — выполняет действия..." : "..."}</span>
+            <span style={{ marginLeft: "auto", fontSize: "10px", opacity: 0.7 }}>{hasReasoning ? `${message.reasoning.length} симв.` : ""}</span>
+          </div>
+        )}
         {hasReasoning && (
-          <div className="reasoning-block">
-            <button className="reasoning-toggle" onClick={() => setReasoningOpen((v) => !v)}>
-              <Brain size={13} />
-              <span>Ход рассуждений</span>
+          <div className="reasoning-block" style={{ border: "1px solid var(--border-subtle)", borderRadius: "8px", overflow: "hidden", marginBottom: 10 }}>
+            <button className="reasoning-toggle" onClick={() => setReasoningOpen((v) => !v)} style={{ width: "100%", justifyContent: "space-between" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 6 }}><Brain size={13} /> Ход рассуждений {hasReasoning && <span style={{ fontSize: "10px", background: "var(--bg-3)", padding: "2px 6px", borderRadius: 10 }}>{message.reasoning.length > 100 ? `${Math.round(message.reasoning.length/100)/10}k` : message.reasoning.length}</span>}</span>
               <ChevronDown
                 size={14}
                 className="reasoning-chevron"
@@ -76,10 +87,15 @@ export default function MessageBubble({ message }) {
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
                 >
-                  <div className="reasoning-text-inner">{message.reasoning}</div>
+                  <div className="reasoning-text-inner" style={{ whiteSpace: "pre-wrap", maxHeight: "240px", overflowY: "auto" }}>{message.reasoning}</div>
                 </motion.div>
               )}
             </AnimatePresence>
+          </div>
+        )}
+        {!hasReasoning && isThinking && (
+          <div style={{ fontSize: "11px", color: "var(--text-tertiary)", fontStyle: "italic", marginBottom: 8, padding: "6px 8px", background: "var(--bg-1)", borderRadius: 6 }}>
+            Агент анализирует задачу и готовит план... (рассуждения появятся здесь)
           </div>
         )}
 
@@ -175,14 +191,7 @@ export default function MessageBubble({ message }) {
 
         {message.sessionReport && <SessionReportPanel report={message.sessionReport} />}
 
-        {message.status === "thinking" && !message.content && (
-          <div className="agent-status">
-            <span className="cf-live-dot" />
-            <span>Агент думает{message.statusText ? `: ${message.statusText}` : "..."}</span>
-          </div>
-        )}
-
-        {!message.content && !hasReasoning && (!message.toolEvents || message.toolEvents.length === 0) && message.status !== "thinking" && (
+        {showTyping && (
           <div className="typing-indicator">
             <span />
             <span />

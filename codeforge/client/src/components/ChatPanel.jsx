@@ -10,6 +10,8 @@ export default function ChatPanel() {
   const scrollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const rafRef = useRef(null);
+  const lastMessage = messages[messages.length - 1];
+  const isAgentWorking = isStreaming && lastMessage?.role === "assistant";
 
   const scrollToBottom = useCallback(() => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
@@ -31,6 +33,13 @@ export default function ChatPanel() {
 
   return (
     <div className="chat-panel" role="log" aria-live="polite" aria-label="Chat history">
+      {isAgentWorking && (
+        <div style={{ padding: "8px 16px", background: "var(--accent-bg)", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 8, fontSize: "12px", color: "var(--text-secondary)", flexShrink: 0 }}>
+          <span className="cf-live-dot" />
+          <span>Агент работает — {lastMessage?.toolEvents?.length ? `${lastMessage.toolEvents.length} действий` : lastMessage?.reasoning ? "анализирует..." : "думает..."}</span>
+          <span style={{ marginLeft: "auto", fontSize: "10px", opacity: 0.6 }}>{lastMessage?.reasoning ? `${lastMessage.reasoning.length} симв. рассуждений` : ""}</span>
+        </div>
+      )}
       <div className="chat-scroll" ref={scrollRef}>
         {messages.length === 0 ? (
           <EmptyState />
