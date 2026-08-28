@@ -156,17 +156,23 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
     if (isStreamingRef.current) return;
     isStreamingRef.current = true;
 
+    // Use refs to avoid stale closure - critical for display bug
+    const currentMessages = messagesRef.current;
+    const currentFiles = filesRef.current;
+
     const userMsg = { id: uuid(), role: "user", content: text, images: hasImages ? images : undefined };
-    const nextHistory = [...messages, userMsg];
+    const nextHistory = [...currentMessages, userMsg];
     messagesRef.current = nextHistory;
     setMessages(nextHistory);
     // Save immediately so a tab/browser crash does not erase the prompt.
     void persistNow(nextHistory);
     setIsStreaming(true);
     setPendingPlan(null);
+    setBudgetWarning(null);
+    setSessionReport(null);
 
     const assistantId = uuid();
-    messagesRef.current = [...nextHistory, { id: assistantId, role: "assistant", content: "", reasoning: "", toolEvents: [], plan: null }];
+    messagesRef.current = [...nextHistory, { id: assistantId, role: "assistant", content: "", reasoning: "", toolEvents: [], plan: null, status: "thinking" }];
     setMessages(messagesRef.current);
 
     const controller = new AbortController();
@@ -178,7 +184,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           history: nextHistory.map((m) => ({ role: m.role, content: m.content })),
-          files,
+          files: currentFiles,
           chatId,
           model: settings.model,
           mode: settings.mode || "single",
@@ -277,7 +283,13 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         case "terminal":
           break;
         case "final":
-          setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, content: evt.text } : m));
+          setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, content: evt.text, status: "done" } : m));
+          break;
+        case "done":
+          setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, status: "done" } : m));
+          break;
+        case "status":
+          setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, status: evt.status || evt.text, statusText: evt.text } : m));
           break;
         case "usage":
           setUsage((prev) => ({ prompt_tokens: prev.prompt_tokens + (evt.usage?.prompt_tokens || 0), completion_tokens: prev.completion_tokens + (evt.usage?.completion_tokens || 0) }));
@@ -331,7 +343,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
           break;
       }
     }
-  }, [files, chatId, isStreaming, messages, notify, persistNow, setFiles, settings.model, settings.mode, settings.requireApproval, settings.autoRollback]);
+  }, [chatId, notify, persistNow, setFiles, settings.model, settings.mode, settings.requireApproval, settings.autoRollback]);
 
   const resolveDiff = useCallback(async (approved) => {
     if (!pendingDiff?.token) return;

@@ -2380,6 +2380,53 @@
 
 
 
+/* ===================== PHONE OPTIMIZED DESIGN (Same design, fully optimized) ===================== */
+@media (max-width: 640px) {
+  /* Phone: tighter header, larger touch, stacked layout */
+  .shell { flex-direction: column; }
+  .shell-main { height: 100dvh; }
+  .topbar { padding: 8px 10px; gap: 6px; min-height: 52px; }
+  .topbar-status-text { display: none; }
+  .topbar-model-chip { font-size: 10px; padding: 3px 7px; }
+  .usage-pill { font-size: 11px; padding: 4px 8px; }
+  .chat-panel { padding-bottom: env(safe-area-inset-bottom); }
+  .chat-scroll { padding: 12px 10px; }
+  .chat-messages { gap: 14px; }
+  .msg-bubble { max-width: 92%; font-size: 14px; line-height: 1.5; }
+  .msg-bubble-user { padding: 10px 12px; }
+  .msg-bubble-assistant { padding: 12px 12px; }
+  .reasoning-toggle { padding: 8px 10px; font-size: 12px; }
+  .tool-events { gap: 6px; }
+  .tool-call-item { padding: 8px 10px; }
+  .chat-input-wrap { padding: 10px 10px max(10px, env(safe-area-inset-bottom)); gap: 8px; }
+  .chat-input-box { padding: 8px 10px; border-radius: 16px; }
+  .chat-input-box textarea { font-size: 16px; } /* prevent iOS zoom */
+  .attached-files-strip, .attached-images-strip { padding: 6px 8px; }
+  .files-panel-body { flex-direction: column; }
+  .file-tree { max-height: 28vh; border-right: none; border-bottom: 1px solid var(--border-subtle); }
+  .editor-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .editor-tabs::-webkit-scrollbar { display: none; }
+  .code-viewer { font-size: 13px; }
+  .code-viewer-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+  .breadcrumbs { font-size: 10px; padding: 6px 10px; overflow-x: auto; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .stats-card { padding: 10px; }
+  .stats-card-value { font-size: 18px; }
+  .settings-modal-wrap { padding: 12px; }
+  .settings-modal { width: 100%; max-height: 92dvh; border-radius: 16px; }
+  .settings-body { padding: 14px; }
+  .command-palette { width: 96vw; top: 8vh; }
+  .command-palette-input input { font-size: 16px; }
+  .theme-presets { gap: 6px; }
+  .editor-split { flex-direction: column; }
+  .editor-split-divider { width: 100%; height: 1px; }
+  /* Swipe hint */
+  .shell-content { position: relative; }
+  /* Ensure sidebar and files panel are full-screen on phone */
+  .sidebar-mobile-wrap, .files-panel-wrap { width: 100vw; max-width: none; }
+  .sidebar { width: 100%; }
+}
+
 /* ===================== MOBILE RELIABILITY / TOUCH POLISH ===================== */
 @media (max-width: 900px) {
   .topbar {

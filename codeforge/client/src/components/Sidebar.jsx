@@ -32,7 +32,7 @@ export default function Sidebar({ open, onClose, isMobile }) {
           <span className="brand-sub">multi-agent studio</span>
         </div>
         <button className="icon-btn sidebar-close-btn" onClick={onClose} aria-label="Закрыть">
-          {isMobile ? <X size={18} /> : <PanelLeftClose size={17} />}
+          <X size={18} />
         </button>
       </div>
 
@@ -64,10 +64,31 @@ export default function Sidebar({ open, onClose, isMobile }) {
     </div>
   );
 
+  // Desktop: inline sidebar, no overlay/drawer
+  if (!isMobile) {
+    return (
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            className="sidebar-desktop-wrap"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: "var(--sidebar-w)", opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            style={{ flexShrink: 0, overflow: "hidden" }}
+          >
+            <div style={{ width: "var(--sidebar-w)", height: "100%" }}>{content}</div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    );
+  }
+
+  // Mobile: overlay + drawer
   return (
     <AnimatePresence>
       {open && (
-        <div>
+        <>
           <motion.div
             className="sidebar-overlay"
             initial={{ opacity: 0 }}
@@ -84,7 +105,7 @@ export default function Sidebar({ open, onClose, isMobile }) {
           >
             {content}
           </motion.div>
-        </div>
+        </>
       )}
     </AnimatePresence>
   );

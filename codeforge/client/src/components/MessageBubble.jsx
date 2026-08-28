@@ -175,7 +175,14 @@ export default function MessageBubble({ message }) {
 
         {message.sessionReport && <SessionReportPanel report={message.sessionReport} />}
 
-        {!message.content && !hasReasoning && (!message.toolEvents || message.toolEvents.length === 0) && (
+        {message.status === "thinking" && !message.content && (
+          <div className="agent-status">
+            <span className="cf-live-dot" />
+            <span>Агент думает{message.statusText ? `: ${message.statusText}` : "..."}</span>
+          </div>
+        )}
+
+        {!message.content && !hasReasoning && (!message.toolEvents || message.toolEvents.length === 0) && message.status !== "thinking" && (
           <div className="typing-indicator">
             <span />
             <span />

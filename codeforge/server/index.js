@@ -57,25 +57,30 @@ app.use((req, res, next) => {
 });
 
 // Rate limiting with different limits for different endpoints
+// Use per-chatId or per-user key instead of just IP (Render shares IPs)
+const getRateLimitKey = (req) => {
+  return req.body?.chatId || req.body?.memoryKey || req.headers["x-workspace-id"] || req.ip;
+};
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 120,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => getRateLimitKey(req) || req.ip,
   handler: (req, res) => {
     res.status(429).json({ error: "Too many requests, please try again later." });
-  }
+  },
+  skip: (req) => req.path === "/health" || req.path === "/api/health"
 });
 
 const chatLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 30,
+  max: 60,
   standardHeaders: true,
   legacyHeaders: false,
-  keyGenerator: (req) => req.ip,
+  keyGenerator: (req) => getRateLimitKey(req) || req.ip,
   handler: (req, res) => {
-    res.status(429).json({ error: "Too many chat requests, please wait." });
+    res.status(429).json({ error: "Too many chat requests, please wait a moment." });
   }
 });
 
