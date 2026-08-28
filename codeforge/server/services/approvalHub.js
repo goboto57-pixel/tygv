@@ -41,13 +41,15 @@ export function createPendingApproval() {
   return { token, promise };
 }
 
-export function resolveApproval(token, approved) {
+export function resolveApproval(token, approved, note) {
   const entry = pending.get(token);
   if (!entry || entry.resolved) return false;
   entry.resolved = true;
   clearTimeout(entry.timeout);
   pending.delete(token);
-  entry.resolve(!!approved);
+  // Resolve with both the decision and any free-text note so the agent can
+  // adapt the plan/change when the user rejected with feedback.
+  entry.resolve({ approved: !!approved, note: note || "" });
   return true;
 }
 

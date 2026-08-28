@@ -31,8 +31,8 @@ router.post("/transcribe", upload.single("audio"), async (req, res) => {
 // Resolves a pending diff-approval prompt raised mid-stream by a currently
 // running /chat/stream call (see approvalHub.js for how the two connect).
 router.post("/approve/:token", (req, res) => {
-  const { approved } = req.body;
-  const ok = resolveApproval(req.params.token, approved === true);
+  const { approved, note } = req.body;
+  const ok = resolveApproval(req.params.token, approved === true, note);
   if (!ok) {
     return res.status(404).json({ error: "No pending approval for this token (it may have already timed out or been resolved)." });
   }
@@ -42,7 +42,8 @@ router.post("/approve/:token", (req, res) => {
 router.post("/stream", async (req, res) => {
   const {
     history, files, chatId, memoryKey, model, mode, enhance, images,
-    requireApproval, autoRollback, runId: requestedRunId, resume
+    requireApproval, autoRollback, runId: requestedRunId, resume,
+    requirePlanApproval
   } = req.body;
 
   // A resume request only needs the runId; the job is already running on the
@@ -113,6 +114,18 @@ router.post("/stream", async (req, res) => {
       }
     : undefined;
 
+  // Same bridge, but for plan approval. The agent pauses after make_plan and
+  // waits for the user to approve (or reject with an optional note) via the
+  // same token-resolving approval route. The emitted event type is
+  // `plan_proposed` so the client can render a dedicated approval UI.
+  const onPlanApproveNeeded = requirePlanApproval
+    ? ({ plan }) => {
+        const { token, promise } = createPendingApproval();
+        send({ type: "plan_proposed", token, plan });
+        return promise;
+      }
+    : undefined;
+
   const persistTurn = async (outcome) => {
     if (!chatId) return;
     // Merge with the existing document so client-side durable fields such as
@@ -165,6 +178,8 @@ router.post("/stream", async (req, res) => {
       memoryKey,
       requireApproval: !!requireApproval,
       onApprovalNeeded,
+      requirePlanApproval: !!requirePlanApproval,
+      onPlanApproveNeeded,
       autoRollbackOnTestFailure: autoRollback !== false
     },
     onPersist: persistTurn

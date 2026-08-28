@@ -205,7 +205,21 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         break;
       case "plan":
         setPendingPlan(evt.plan);
-        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: evt.plan } : m));
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: { ...evt.plan, token: evt.token, completedSteps: 0 } } : m));
+        break;
+      case "plan_proposed":
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: { ...evt.plan, token: evt.token, completedSteps: m.plan?.completedSteps || 0 } } : m));
+        break;
+      case "plan_approved":
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: { ...(m.plan || {}), token: null, approved: true, approvedNote: evt.note } } : m));
+        notify("План утверждён — агент приступает к работе", "success");
+        break;
+      case "plan_rejected":
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: { ...(m.plan || {}), token: null, rejected: true, rejectedNote: evt.note } } : m));
+        notify(evt.note ? `План отклонён: ${evt.note}` : "План отклонён", "info");
+        break;
+      case "plan_step":
+        setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, plan: { ...(m.plan || {}), completedSteps: evt.completed } } : m));
         break;
       case "file":
         setFiles((prev) => {
@@ -436,8 +450,8 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         autoRollback: settings.autoRollback !== false,
         images: hasImages ? images.map((img) => ({ dataUrl: img.dataUrl, name: img.name })) : undefined,
         memoryKey: getWorkspaceId(),
-        runId
-      }
+        runId,
+        requirePlanApproval: !!settings.planApproval
     });
   }, [openStream, chatId, notify, persistNow, settings.model, settings.mode, settings.requireApproval, settings.autoRollback]);
 
@@ -452,6 +466,61 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
       notify("Не удалось отправить решение по изменению", "error");
     }
   }, [pendingDiff, notify]);
+
+  // Approves (or rejects with an optional text note) a proposed plan. Uses the
+  // same token-resolving approval route as diff review — the detached server
+  // job is paused on make_plan and resumes once this resolves.
+  const resolvePlanApproval = useCallback(async (token, approved, note) => {
+    if (!token) return;
+    try {
+      const res = await fetch(`${API_BASE}/chat/approve/${token}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ approved: !!approved, note: note || "" })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch {
+      notify("Не удалось отправить решение по плану", "error");
+    }
+  }, [notify]);
+
+  // Re-runs the user's last message as a fresh turn (retry after a failure or
+  // to iterate on the result). No-ops if a stream is in flight.
+  const retryLastTurn = useCallback(() => {
+    if (isStreamingRef.current) return;
+    const msgs = messagesRef.current;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === "user") {
+        const text = msgs[i].content || "";
+        const images = msgs[i].images;
+        void sendMessage(text, images);
+        return;
+      }
+    }
+    notify("Нет сообщения для повтора", "info");
+  }, [sendMessage, notify]);
+
+  // Exports the current conversation as Markdown (with a JSON fallback body)
+  // and triggers a download. Useful for sharing or archival.
+  const exportChat = useCallback(() => {
+    const msgs = messagesRef.current;
+    if (!msgs.length) { notify("Чат пуст", "info"); return; }
+    const md = msgs.map((m) => {
+      const head = m.role === "user" ? "## 👤 Пользователь" : "## 🤖 CodeForge";
+      const body = (m.content || "").trim();
+      const reasoning = m.reasoning ? `\n\n<details><summary>Рассуждения</summary>\n\n${m.reasoning}\n\n</details>` : "";
+      return `${head}\n\n${body}${reasoning}`;
+    }).join("\n\n---\n\n");
+    const blob = new Blob([`# Экспорт чата CodeForge\n\n${md}`], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `codeforge-chat-${Date.now()}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, [notify]);
+
+
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
@@ -485,7 +554,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
     if (runId) void resumeRun(runId);
   }, [chatId, sessionLoaded, resumeRun]);
 
-  const value = useMemo(() => ({ messages, setMessages, isStreaming, pendingPlan, setPendingPlan, usage, pendingDiff, resolveDiff, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, clearMessages, persistNow }), [messages, isStreaming, pendingPlan, usage, pendingDiff, resolveDiff, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, clearMessages, persistNow]);
+  const value = useMemo(() => ({ messages, setMessages, isStreaming, pendingPlan, setPendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, clearMessages, persistNow }), [messages, isStreaming, pendingPlan, usage, pendingDiff, resolveDiff, resolvePlanApproval, budgetWarning, sessionReport, memoryEntries, sendMessage, stopStreaming, retryLastTurn, exportChat, clearMessages, persistNow]);
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
 }
 

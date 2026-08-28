@@ -126,7 +126,7 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             </div>
           </div>
         ) : (
-          hasPackageJson ? <WebContainerPreview files={files} key={chatId} /> : <LivePreview files={files} />
+          hasPackageJson ? <WebContainerPreview files={files} key={chatId} /> : <LivePreview files={files} activeFile={activeFile} />
         )}
       </div>
     );

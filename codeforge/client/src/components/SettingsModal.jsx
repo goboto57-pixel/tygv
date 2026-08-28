@@ -196,6 +196,14 @@ export default function SettingsModal() {
                 <label className="settings-checkbox-row">
                   <input
                     type="checkbox"
+                    checked={!!settings.planApproval}
+                    onChange={(e) => updateSettings({ planApproval: e.target.checked })}
+                  />
+                  <span>Показывать план и ждать утверждения перед началом работы (кнопкой или текстом)</span>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
                     checked={settings.autoRollback !== false}
                     onChange={(e) => updateSettings({ autoRollback: e.target.checked })}
                   />

@@ -19,21 +19,41 @@ import { saveJson, loadJson } from "./cloudinaryService.js";
 const MAX_ENTRIES = 60;
 const MAX_ENTRY_LEN = 400;
 
+// In-memory cache so the agent loop doesn't pay a Cloudinary round-trip on
+// every turn just to recall project memory. Invalidated whenever memory is
+// written/deleted/cleared for that scope. TTL as a safety net against drift.
+const memoryCache = new Map(); // scopeId -> { entries, ts }
+const MEMORY_CACHE_TTL = 5 * 60 * 1000;
+
 function memoryId(scopeId) {
   const safe = String(scopeId || "anonymous").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 120);
   return `mem-${safe}`;
 }
 
+function cachePut(scopeId, entries) {
+  memoryCache.set(scopeId, { entries, ts: Date.now() });
+}
+function cacheGet(scopeId) {
+  const hit = memoryCache.get(scopeId);
+  if (!hit) return null;
+  if (Date.now() - hit.ts > MEMORY_CACHE_TTL) { memoryCache.delete(scopeId); return null; }
+  return hit.entries;
+}
+
 /**
  * Loads all memory entries for the current workspace. Returns [] if none exist yet or
  * the store is unreachable (memory is a nice-to-have, never a hard
- * dependency for the agent loop to function).
+ * dependency for the agent loop to function). Cached in-memory for speed.
  */
 export async function loadMemory(scopeId) {
   if (!scopeId) return [];
+  const cached = cacheGet(scopeId);
+  if (cached) return cached;
   try {
     const data = await loadJson(memoryId(scopeId), "memory");
-    return Array.isArray(data?.entries) ? data.entries : [];
+    const entries = Array.isArray(data?.entries) ? data.entries : [];
+    cachePut(scopeId, entries);
+    return entries;
   } catch {
     return [];
   }
@@ -98,6 +118,7 @@ export async function saveMemory(scopeId, { text, category = "note" }) {
 
     const next = [...existing, entry].slice(-MAX_ENTRIES);
     await saveJson(memoryId(scopeId), { entries: next }, "memory");
+    cachePut(scopeId, next);
     return { saved: true, entry };
   });
 }
@@ -106,11 +127,13 @@ export async function deleteMemoryEntry(scopeId, entryId) {
   const existing = await loadMemory(scopeId);
   const next = existing.filter((e) => e.id !== entryId);
   await saveJson(memoryId(scopeId), { entries: next }, "memory");
+  cachePut(scopeId, next);
   return { deleted: existing.length !== next.length };
 }
 
 export async function clearMemory(scopeId) {
   await saveJson(memoryId(scopeId), { entries: [] }, "memory");
+  cachePut(scopeId, []);
 }
 
 /**

@@ -12,7 +12,10 @@ import { computeSessionMetrics } from "./sessionMetrics.js";
 const SYSTEM_PROMPT = `You are CodeForge, an elite autonomous coding agent powered by Mistral, in the spirit of Claude Code and OpenCode.
 
 Rules you MUST follow:
-1. For non-trivial tasks, make a concise execution plan internally. Use make_plan only when the user needs a visible plan or the task is large/ambiguous; do not add an unnecessary model round for simple fixes.
+1. For non-trivial tasks, call make_plan FIRST to lay out the steps. The plan is shown to the user for approval before you start editing files — after it is approved, implement the steps in order. For trivial one-file fixes a plan is not needed.
+2. Prefer plain static HTML/CSS/JS (no build step) so the live preview renders instantly. Only reach for a framework or build toolchain if the user explicitly asks for one.
+3. When the task is genuinely complete, return a concise final summary to the user and STOP — make no further tool calls. Never start a long-running dev server (npm run dev) or any command that blocks; if you must run something, use run_command which auto-times-out.
+4. For non-trivial tasks, make a concise execution plan internally. Use make_plan only when the user needs a visible plan or the task is large/ambiguous; do not add an unnecessary model round for simple fixes.
 2. Implement directly with the file tools (list_directory_tree, read_file, read_files, write_file, edit_file, delete_file, rename_file, find_files, search_code, grep, lint_file). Batch independent reads/searches when possible.
 3. Always return actual files via tool calls (write_file / edit_file) — never just paste code as plain text in your message.
 4. Before editing, read_file if you're not sure of current contents. Use list_directory_tree to understand project structure on larger tasks.
@@ -62,6 +65,8 @@ export async function runAgentLoop({
   memoryKey = chatId,
   requireApproval = false,
   onApprovalNeeded,
+  requirePlanApproval = false,
+  onPlanApproveNeeded,
   autoRollbackOnTestFailure = true,
   budgetLimits,
   onEvent,
@@ -165,6 +170,9 @@ export async function runAgentLoop({
   const changedPaths = [];
   const testRuns = [];
   let lastTestRunFailed = false;
+  // Number of plan steps the agent has visibly completed, used to check off
+  // the plan card in the UI as work progresses.
+  let planStepDone = 0;
 
   // Shared exit path for every place the loop can end (final answer, hit
   // MAX_LOOPS, or an abort). Applies auto-rollback and emits the session
@@ -378,6 +386,26 @@ export async function runAgentLoop({
 
       if (execResult.isPlan) {
         onEvent({ type: "plan", plan: execResult.result });
+        // Plan approval gate: pause and wait for the user to approve (button
+        // or text) before doing any real work. The request that started the
+        // (detached) job supplies onPlanApproveNeeded; if none is wired we
+        // proceed automatically so an unattended job still makes progress.
+        if (requirePlanApproval && typeof onPlanApproveNeeded === "function") {
+          let approved = true;
+          let note = "";
+          try {
+            const res = await onPlanApproveNeeded({ plan: execResult.result });
+            approved = res?.approved !== false;
+            note = res?.note || "";
+          } catch {
+            approved = false;
+          }
+          if (approved) {
+            onEvent({ type: "plan_approved", note });
+          } else {
+            onEvent({ type: "plan_rejected", note });
+          }
+        }
       }
       if (execResult.fileChanged) {
         onEvent({
@@ -411,6 +439,14 @@ export async function runAgentLoop({
         name: call.function.name,
         result: execResult.error || execResult.result
       });
+
+      // Mark a plan step as completed for each meaningful mutating action so
+      // the UI plan card checks off progress in real time.
+      const MUTATING = new Set(["write_file", "edit_file", "delete_file", "run_command", "rename_file", "delegate_to_subagent"]);
+      if (MUTATING.has(call.function.name)) {
+        planStepDone++;
+        onEvent({ type: "plan_step", completed: planStepDone });
+      }
 
       messages.push({
         role: "tool",

@@ -55,6 +55,7 @@ function defaultSettings() {
     sendOnEnter: true,
     mode: "single",
     requireApproval: false,
+    planApproval: true,
     autoRollback: true
   };
 }
