@@ -710,6 +710,60 @@ export async function executeTool(toolName, args, fsMap) {
       return { result: `No changes for ${p}` };
     }
 
+    case "analyze_bundle": {
+      const files = Array.from(fsMap.entries());
+      const byExt = {};
+      let total = 0;
+      for (const [path, c] of files) {
+        const ext = (path.split(".").pop() || "noext").toLowerCase();
+        const sz = Buffer.byteLength(c, "utf8");
+        byExt[ext] = (byExt[ext] || 0) + sz;
+        total += sz;
+      }
+      const sorted = Object.entries(byExt).sort((a, b) => b[1] - a[1]).map(([ext, sz]) => ({ ext, bytes: sz, pct: total ? Math.round(sz / total * 1000) / 10 : 0 }));
+      return { result: { totalBytes: total, byExt: sorted } };
+    }
+
+    case "extract_colors": {
+      const colors = new Set();
+      const re = /#([0-9a-f]{3,8})\b|rgba?\([^)]+\)|hsla?\([^)]+\)/gi;
+      for (const [, c] of fsMap.entries()) {
+        let m; while ((m = re.exec(c)) !== null) colors.add(m[0]);
+        re.lastIndex = 0;
+      }
+      return { result: Array.from(colors).slice(0, 100) };
+    }
+
+    case "generate_tests": {
+      const p = (args.path || "").replace(/^\/+/, "");
+      if (!p) return { error: "path required" };
+      if (!fsMap.has(p)) return { error: `File not found: ${p}` };
+      const base = p.replace(/\.[^.]+$/, "");
+      const testPath = `${base}.test.js`;
+      if (fsMap.has(testPath)) return { result: `Test already exists: ${testPath}` };
+      const content = `import { describe, it, expect } from "vitest";\nimport mod from "./${p.split("/").pop()}";\n\ndescribe("${p}",()=>{it("smoke",()=>{expect(mod).toBeDefined()})})\n`;
+      fsMap.set(testPath, content);
+      embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap);
+      return { result: `Generated ${testPath}`, fileChanged: testPath };
+    }
+
+    case "refactor": {
+      const oldName = args.old_name || args.old_text;
+      const newName = args.new_name || args.new_text;
+      if (!oldName || !newName) return { error: "old_name and new_name required" };
+      let count = 0;
+      for (const [path, c] of fsMap.entries()) {
+        if (c.includes(oldName)) {
+          const escaped = oldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          const re = new RegExp(`\\b${escaped}\\b`, "g");
+          const next = c.replace(re, newName);
+          if (next !== c) { fsMap.set(path, next); count++; }
+        }
+      }
+      if (count) { embeddingIndexCache.delete(fsMap); invalidateReadCache(fsMap); }
+      return { result: `Refactored ${oldName} -> ${newName} in ${count} file(s)` };
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
@@ -742,6 +796,12 @@ export function checkPreview(fsMap, entry) {
   if (!/<html[\s>]/.test(lower)) issues.push(`<html> tag missing in ${htmlPath}`);
   if (!/<head[\s>]/.test(lower)) issues.push(`<head> tag missing in ${htmlPath}`);
   if (!/<body[\s>]/.test(lower)) issues.push(`<body> tag missing in ${htmlPath}`);
+  // a11y checks
+  if (/<img[^>]*>/i.test(html) && !/<img[^>]*alt=/i.test(html)) issues.push(`a11y: <img> without alt in ${htmlPath}`);
+  if (!/<html[^>]*lang=/i.test(html)) issues.push(`a11y: <html> missing lang attribute`);
+  // seo checks
+  if (!/<title[^>]*>[^<]+<\/title>/i.test(html)) issues.push(`seo: missing <title>`);
+  if (!/<meta[^>]*name=["']description["'][^>]*>/i.test(html)) issues.push(`seo: missing meta description`);
 
   const collectRefs = (re) => {
     let m;

@@ -117,6 +117,7 @@ export async function runAgentLoop({
       const { geminiText, mistralText, decision } = await runCouncil({ taskText: lastUserText, projectSummary });
       onEvent({ type: "council", status: "done", geminiText, mistralText, decision });
       leadingNote = `\n\nSTRATEGY NOTE (agreed by council review before you start): ${decision}`;
+      try { await saveMemory(memoryKey, { text: decision.slice(0, 400), category: "decision" }); } catch {}
     } catch (err) {
       onEvent({ type: "council", status: "error", message: err.message });
     }
@@ -340,6 +341,7 @@ export async function runAgentLoop({
 
     const executePrepared = async ({ call, args }) => {
       onEvent({ type: "tool_call", name: call.function.name, args });
+      budget.addToolCall(call.function.name);
 
       if (call.function.name === "delegate_to_subagent") {
         onEvent({ type: "subagent_start", task: args.task });

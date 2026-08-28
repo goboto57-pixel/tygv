@@ -37,6 +37,8 @@ const ALLOWED_BINARIES = new Set([
   "node",
   "yarn",
   "pnpm",
+  "bun",
+  "deno",
   "python3",
   "python",
   "pip",

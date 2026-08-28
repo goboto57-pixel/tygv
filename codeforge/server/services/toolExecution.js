@@ -11,7 +11,9 @@ export const READ_ONLY_TOOLS = new Set([
   "web_fetch",
   "check_preview",
   "get_project_stats",
-  "todo_scan"
+  "todo_scan",
+  "analyze_bundle",
+  "extract_colors"
 ]);
 
 export function splitToolCalls(calls = []) {

@@ -24,10 +24,13 @@ export function createBudgetTracker(overrides = {}) {
   const startedAt = Date.now();
   let totalTokens = 0;
   const warned = new Set();
-
+  const perTool = new Map(); // tool -> count
   function addUsage(usage) {
     if (!usage) return;
     totalTokens += (usage.prompt_tokens || 0) + (usage.completion_tokens || 0);
+  }
+  function addToolCall(name) {
+    perTool.set(name, (perTool.get(name) || 0) + 1);
   }
 
   /**
@@ -38,7 +41,13 @@ export function createBudgetTracker(overrides = {}) {
    */
   function check() {
     const elapsedMs = Date.now() - startedAt;
-
+    // per-tool spam: if any tool called >12 times, warn
+    for (const [tool, cnt] of perTool.entries()) {
+      if (cnt > 12 && !warned.has(`tool-${tool}`)) {
+        warned.add(`tool-${tool}`);
+        return { level: "warn", kind: "tool", tool, value: cnt, limit: 12, exceeded: false };
+      }
+    }
     if (totalTokens >= limits.tokenHard && !warned.has("token-hard")) {
       warned.add("token-hard");
       return { level: "hard", kind: "tokens", value: totalTokens, limit: limits.tokenHard, exceeded: true };
@@ -59,7 +68,7 @@ export function createBudgetTracker(overrides = {}) {
   }
 
   function snapshot() {
-    return { totalTokens, elapsedMs: Date.now() - startedAt, limits };
+    return { totalTokens, elapsedMs: Date.now() - startedAt, limits, perTool: Object.fromEntries(perTool) };
   }
 
   function isExceeded() {
@@ -67,5 +76,5 @@ export function createBudgetTracker(overrides = {}) {
     return totalTokens >= limits.tokenHard || elapsedMs >= limits.timeHardMs;
   }
 
-  return { addUsage, check, snapshot, isExceeded };
+  return { addUsage, addToolCall, check, snapshot, isExceeded };
 }
