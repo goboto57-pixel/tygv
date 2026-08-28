@@ -452,6 +452,7 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         memoryKey: getWorkspaceId(),
         runId,
         requirePlanApproval: !!settings.planApproval
+      });
     });
   }, [openStream, chatId, notify, persistNow, settings.model, settings.mode, settings.requireApproval, settings.autoRollback]);
 
