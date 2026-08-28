@@ -134,7 +134,6 @@ export async function runAgentLoop({
 
   const isGemini = /^gemini-3\./.test(effectiveModel);
   const chatFn = isGemini ? streamGeminiChat : streamMistralChat;
-  const activeTools = [...baseTools, ...extraTools];
 
   const messages = [{ role: "system", content: SYSTEM_PROMPT + leadingNote + memoryBlock }, ...workingHistory];
 
@@ -178,6 +177,7 @@ export async function runAgentLoop({
   const baseTools = isSimpleEconomy
     ? toolDefinitions.filter((t) => !["semantic_search", "run_tests", "delegate_to_subagent"].includes(t.function.name))
     : toolDefinitions;
+  const activeTools = [...baseTools, ...extraTools];
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
   // Keep a bounded loop so an agent cannot spend minutes repeating the same failed tool call.
