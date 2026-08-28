@@ -130,7 +130,7 @@ export async function runAgentLoop({
 
   const isGemini = /^gemini-3\./.test(effectiveModel);
   const chatFn = isGemini ? streamGeminiChat : streamMistralChat;
-  const activeTools = [...toolDefinitions, ...extraTools];
+  const activeTools = [...baseTools, ...extraTools];
 
   const messages = [{ role: "system", content: SYSTEM_PROMPT + leadingNote + memoryBlock }, ...workingHistory];
 
@@ -163,6 +163,11 @@ export async function runAgentLoop({
     if (msgs.length <= 16) return msgs;
     return [msgs[0], ...msgs.slice(-12)];
   };
+  // For simple tasks drop heavy tools to save ~400 tokens/call
+  const isSimpleEconomy = /(простой сайт|одностраничник|лендинг|simple site|landing page|простой)/i.test(rawLastPrompt);
+  const baseTools = isSimpleEconomy
+    ? toolDefinitions.filter((t) => !["semantic_search", "run_tests", "delegate_to_subagent"].includes(t.function.name))
+    : toolDefinitions;
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
   // Keep a bounded loop so an agent cannot spend minutes repeating the same failed tool call.

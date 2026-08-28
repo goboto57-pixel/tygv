@@ -65,6 +65,7 @@ export default function ChatInput() {
   const [isRecording, setIsRecording] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [pendingImages, setPendingImages] = useState([]); // [{id, name, dataUrl}] — vision reference attachments
+  const [pendingFiles, setPendingFiles] = useState([]); // [{id, name, path}] — files just attached, will be visible to agent via project files
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
@@ -120,10 +121,17 @@ export default function ChatInput() {
   const removeImage = (id) => setPendingImages((prev) => prev.filter((img) => img.id !== id));
 
   const handleSend = () => {
-    if ((!value.trim() && pendingImages.length === 0) || isStreaming) return;
-    sendMessage(value, pendingImages);
+    if ((!value.trim() && pendingImages.length === 0 && pendingFiles.length === 0) || isStreaming) return;
+    // append attached file list to message so agent explicitly knows what to look at
+    let msg = value;
+    if (pendingFiles.length) {
+      const list = pendingFiles.map((f) => f.path).join(", ");
+      msg = msg ? `${msg}\n\n[Прикреплённые файлы: ${list} — смотри в проекте]` : `Посмотри файлы: ${list}`;
+    }
+    sendMessage(msg, pendingImages);
     setValue("");
     setPendingImages([]);
+    setPendingFiles([]);
     requestAnimationFrame(autoResize);
   };
 
@@ -142,7 +150,11 @@ export default function ChatInput() {
     const images = Array.from(dropped).filter((f) => f.type.startsWith("image/"));
     const rest = Array.from(dropped).filter((f) => !f.type.startsWith("image/"));
     if (images.length) addImages(images);
-    if (rest.length) uploadFiles(rest);
+    if (rest.length) {
+      const ids = rest.map((f) => ({ id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`, name: f.name, path: f.name }));
+      setPendingFiles((prev) => [...prev, ...ids].slice(0, 10));
+      uploadFiles(rest);
+    }
   };
 
   // Voice input: record via MediaRecorder, then ship the audio to the
@@ -229,14 +241,24 @@ export default function ChatInput() {
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
     >
-      {files.length > 0 && (
+      {(files.length > 0 || pendingFiles.length > 0) && (
         <div className="attached-files-strip">
+          {pendingFiles.map((f) => (
+            <span key={f.id} className="attached-chip pending" title="Будет отправлено с сообщением">
+              {f.name} •
+            </span>
+          ))}
           {files.slice(0, 6).map((f) => (
             <span key={f.path} className="attached-chip">
               {f.path.split("/").pop()}
             </span>
           ))}
           {files.length > 6 && <span className="attached-chip">+{files.length - 6}</span>}
+          {pendingFiles.length > 0 && (
+            <button className="attached-chip" onClick={() => setPendingFiles([])} title="Очистить прикреплённые">
+              <X size={10} /> очистить
+            </button>
+          )}
         </div>
       )}
 
@@ -266,7 +288,14 @@ export default function ChatInput() {
           ref={fileInputRef}
           multiple
           hidden
-          onChange={(e) => e.target.files?.length && uploadFiles(e.target.files)}
+          onChange={(e) => {
+            if (!e.target.files?.length) return;
+            const list = Array.from(e.target.files);
+            const ids = list.map((f) => ({ id: `${f.name}-${f.size}-${Date.now()}-${Math.random()}`, name: f.name, path: f.name }));
+            setPendingFiles((prev) => [...prev, ...ids].slice(0, 10));
+            uploadFiles(e.target.files);
+            e.target.value = "";
+          }}
         />
 
         <button

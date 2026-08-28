@@ -24,11 +24,13 @@ function isTextFile(name) {
 }
 
 function sanitizePath(name) {
-  // remove path traversal, null bytes, leading slashes
+  // keep unicode letters (Cyrillic etc), allow spaces/dots/dash, block traversal
   let p = name.replace(/\0/g, "").replace(/\\/g, "/");
   p = p.replace(/\.\.\//g, "").replace(/\.\./g, "");
   p = p.replace(/^\/+/, "");
-  p = p.replace(/[^a-zA-Z0-9._\-\/]/g, "_");
+  // allow unicode letters/numbers, dot, dash, underscore, slash, space
+  p = p.replace(/[^\p{L}\p{N}._\-\/ ]/gu, "_");
+  p = p.replace(/\s+/g, " ").trim();
   if (!p || p.length > 200) p = p.slice(0, 200) || "unnamed";
   return p;
 }

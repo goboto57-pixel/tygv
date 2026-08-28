@@ -347,6 +347,11 @@ export async function executeTool(toolName, args, fsMap) {
       if (content === undefined) {
         return { error: `File not found: ${args.path}` };
       }
+      // economy: truncate huge files to save tokens
+      const max = 6000;
+      if (content.length > max) {
+        return { result: content.slice(0, max) + `\n…[обрезано ${content.length - max} символов — запроси конкретный диапазон]` };
+      }
       return { result: content };
     }
 
@@ -355,8 +360,11 @@ export async function executeTool(toolName, args, fsMap) {
       const results = {};
       const missing = [];
       for (const p of paths) {
-        if (fsMap.has(p)) results[p] = fsMap.get(p);
-        else missing.push(p);
+        if (fsMap.has(p)) {
+          let c = fsMap.get(p);
+          if (c.length > 6000) c = c.slice(0, 6000) + `\n…[обрезано]`;
+          results[p] = c;
+        } else missing.push(p);
       }
       return { result: { files: results, missing } };
     }
