@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle } from "lucide-react";
+import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map } from "lucide-react";
 import DiffViewer from "./DiffViewer.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
@@ -118,6 +118,12 @@ export default function CodeViewer({ path, content, prevContent }) {
   const lintTarget = editing ? draft : content;
   const lintIssues = useMemo(() => lintTextClient(lintTarget), [lintTarget]);
 
+  const [showMinimap, setShowMinimap] = useState(false);
+  const minimapContent = useMemo(() => {
+    if (!content) return "";
+    return content.slice(0, 2000).replace(/\t/g, "  ");
+  }, [content]);
+
   return (
     <div className="code-viewer">
       <div className="code-viewer-header">
@@ -163,6 +169,9 @@ export default function CodeViewer({ path, content, prevContent }) {
               )}
               <button className="code-viewer-copy" onClick={startEdit} title="Редактировать файл">
                 <Pencil size={13} /> Изменить
+              </button>
+              <button className="code-viewer-copy" onClick={() => setShowMinimap(v=>!v)} title="Minimap">
+                <Maximize2 size={13} />
               </button>
               <button className="code-viewer-copy" onClick={handleCopy}>
                 {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -213,21 +222,30 @@ export default function CodeViewer({ path, content, prevContent }) {
       ) : mode === "diff" && hasDiff ? (
         <DiffViewer oldContent={prevContent} newContent={content} />
       ) : (
-        <div className="code-viewer-body">
-          <SyntaxHighlighter
-            language={getLanguage(path)}
-            style={vscDarkPlus}
-            showLineNumbers
-            customStyle={{
-              margin: 0,
-              background: "transparent",
-              fontSize: "13px",
-              padding: "16px",
-              fontFamily: "JetBrains Mono, monospace"
-            }}
-          >
-            {content || ""}
-          </SyntaxHighlighter>
+        <div className="code-viewer-wrap">
+          <div className="code-viewer-body" style={{ flex: 1 }}>
+            <SyntaxHighlighter
+              language={getLanguage(path)}
+              style={vscDarkPlus}
+              showLineNumbers
+              customStyle={{
+                margin: 0,
+                background: "transparent",
+                fontSize: "13px",
+                padding: "16px",
+                fontFamily: "JetBrains Mono, monospace"
+              }}
+            >
+              {content || ""}
+            </SyntaxHighlighter>
+          </div>
+          {showMinimap && (
+            <div className="code-viewer-minimap" onClick={()=>setShowMinimap(false)} title="Нажми чтобы скрыть">
+              {minimapContent.split("\n").slice(0, 80).map((line, i) => (
+                <div key={i} style={{ opacity: line.trim() ? 0.8 : 0.3, height: "2px", overflow: "hidden" }}>{line.slice(0, 60)}</div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

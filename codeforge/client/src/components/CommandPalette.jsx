@@ -59,7 +59,15 @@ export default function CommandPalette() {
   const { setSettingsOpen } = useUI();
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem("cf_cmd_history")||"[]"); } catch { return []; } });
   const inputRef = useRef(null);
+  const addHistory = (id) => {
+    setHistory(prev => {
+      const next = [id, ...prev.filter(x=>x!==id)].slice(0, 12);
+      try { localStorage.setItem("cf_cmd_history", JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (commandPaletteOpen) {
@@ -105,19 +113,27 @@ export default function CommandPalette() {
       run: () => openFileTab(f.path)
     }));
 
-    const all = [...base, ...fileActions, ...chats];
+    // Boost history items
+    const histSet = new Set(history);
+    const all = [...base, ...fileActions, ...chats].map(a => ({ ...a, histBoost: histSet.has(a.id) ? 50 : 0 }));
 
-    if (!query.trim()) return all.map((a) => ({ ...a, positions: [] }));
+    if (!query.trim()) {
+      const sorted = [...all].sort((a,b)=> (b.histBoost - a.histBoost));
+      // show recent history first when no query
+      const histItems = sorted.filter(a=>a.histBoost).slice(0,5);
+      const rest = sorted.filter(a=>!a.histBoost);
+      return [...histItems, ...rest].map((a) => ({ ...a, positions: [] }));
+    }
 
     const scored = all
-      .map((a) => ({ ...a, ...fuzzyMatch(query, a.label) }))
+      .map((a) => ({ ...a, ...fuzzyMatch(query, a.label), score: fuzzyMatch(query, a.label).score + (a.histBoost||0) }))
       .filter((a) => a.match);
     // Stable-ish ordering: best fuzzy score first, ties broken by original
     // group order (actions > files > sessions) via index in `all`.
     const indexOf = new Map(all.map((a, i) => [a.id, i]));
     scored.sort((a, b) => b.score - a.score || indexOf.get(a.id) - indexOf.get(b.id));
     return scored.slice(0, 50);
-  }, [query, newChat, takeSnapshot, files, chatId, chatList, loadChat, openFileTab, setSettingsOpen]);
+  }, [query, newChat, takeSnapshot, files, chatId, chatList, loadChat, openFileTab, setSettingsOpen, history]);
 
   useEffect(() => {
     function onKey(e) {
@@ -142,6 +158,7 @@ export default function CommandPalette() {
       e.preventDefault();
       const a = actions[activeIdx];
       if (a && !a.disabled) {
+        addHistory(a.id);
         a.run();
         setCommandPaletteOpen(false);
       }
@@ -192,6 +209,7 @@ export default function CommandPalette() {
                       disabled={a.disabled}
                       onMouseEnter={() => setActiveIdx(i)}
                       onClick={() => {
+                        addHistory(a.id);
                         a.run();
                         setCommandPaletteOpen(false);
                       }}

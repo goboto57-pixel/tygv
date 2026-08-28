@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X, Sun, Moon, Check } from "lucide-react";
 import { useSettings } from "../context/SettingsContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
+import ThemeCustomizer from "./ThemeCustomizer.jsx";
 
 export default function SettingsModal() {
   const { settings, updateSettings, MODELS, MODES } = useSettings();
@@ -144,6 +145,11 @@ export default function SettingsModal() {
                     <Sun size={15} /> Светлая
                   </button>
                 </div>
+              </section>
+
+              <section className="settings-section">
+                <h3>Тема и акцент</h3>
+                <ThemeCustomizer />
               </section>
 
               <section className="settings-section">

@@ -25,15 +25,17 @@ export default defineConfig({
     minify: "esbuild",
     target: "es2022",
     cssCodeSplit: true,
-    modulePreload: { polyfill: false },
+    modulePreload: { polyfill: true },
+    chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "vendor-react": ["react", "react-dom", "react-markdown"],
-          "vendor-ui": ["framer-motion", "lucide-react"],
-          "vendor-editor": ["react-syntax-highlighter"],
-          "vendor-utils": ["jszip", "file-saver"],
-          "webcontainer": ["@webcontainer/api"],
+        manualChunks(id) {
+          if (id.includes("react-syntax-highlighter")) return "vendor-editor";
+          if (id.includes("framer-motion")) return "vendor-motion";
+          if (id.includes("react-markdown") || id.includes("react-syntax-highlighter")) return "vendor-markdown";
+          if (id.includes("jszip") || id.includes("file-saver")) return "vendor-utils";
+          if (id.includes("@webcontainer")) return "webcontainer";
+          if (id.includes("node_modules")) return "vendor";
         },
         chunkFileNames: "assets/js/[name]-[hash].js",
         entryFileNames: "assets/js/[name]-[hash].js",

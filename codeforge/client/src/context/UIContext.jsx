@@ -10,6 +10,8 @@ export function UIProvider({ children }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
+  const [zenMode, setZenMode] = useState(false);
 
   const notify = useCallback((text, kind = "info") => {
     setToast({ text, kind, id: Date.now() + Math.floor(Math.random() * 1000) });
@@ -40,6 +42,10 @@ export function UIProvider({ children }) {
     setLeftSidebarOpen,
     rightPanelOpen,
     setRightPanelOpen,
+    focusMode,
+    setFocusMode,
+    zenMode,
+    setZenMode,
   }), [
     toast,
     terminalLog,
@@ -48,6 +54,8 @@ export function UIProvider({ children }) {
     settingsOpen,
     leftSidebarOpen,
     rightPanelOpen,
+    focusMode,
+    zenMode,
     notify,
     clearTerminal,
     addTerminalEntry,

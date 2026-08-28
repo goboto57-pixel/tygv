@@ -1,20 +1,22 @@
 import React, { useState, useMemo } from "react";
-import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight } from "lucide-react";
+import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight, Focus, BarChart3 } from "lucide-react";
 import { useChat } from "../context/ChatContext.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useSessions } from "../context/SessionsContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import { useSettings } from "../context/SettingsContext.jsx";
 import SnapshotsMenu from "./SnapshotsMenu.jsx";
+import StatsDashboard from "./StatsDashboard.jsx";
 import { exportZip } from "../utils/exportZip.js";
 
 export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rightPanelOpen, isMobile }) {
   const { usage } = useChat();
   const { files, chatId } = useFiles();
   const { takeSnapshot } = useSessions();
-  const { setCommandPaletteOpen, setSettingsOpen } = useUI();
+  const { setCommandPaletteOpen, setSettingsOpen, focusMode, setFocusMode } = useUI();
   const { settings, MODELS } = useSettings();
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
 
   const totalTokens = usage.prompt_tokens + usage.completion_tokens;
   const estCost = useMemo(
@@ -89,12 +91,27 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
           {!rightPanelOpen && files.length > 0 && <span className="file-count icon-btn-badge" aria-label={`${files.length} открытых файлов`}>{files.length}</span>}
         </button>
 
+        <button className={`icon-btn ${focusMode ? "icon-btn-active focus-toggle" : ""}`} onClick={() => { const v = !focusMode; setFocusMode(v); document.querySelector(".shell")?.classList.toggle("focus-mode", v); }} title={focusMode ? "Выйти из фокус режима" : "Фокус режим (Zen)"} aria-label="Фокус режим">
+          <Focus size={17} />
+        </button>
+        <button className="icon-btn" onClick={() => setStatsOpen(v=>!v)} title="Статистика проекта" aria-label="Статистика">
+          <BarChart3 size={17} />
+        </button>
         <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="Настройки" aria-label="Настройки">
           <Settings size={17} />
         </button>
       </div>
 
       {snapshotsOpen && <SnapshotsMenu onClose={() => setSnapshotsOpen(false)} />}
+      {statsOpen && (
+        <div style={{ position: "absolute", top: "52px", right: "12px", width: "min(360px, 92vw)", background: "var(--bg-2)", border: "1px solid var(--border-strong)", borderRadius: "12px", padding: "12px", zIndex: 50, boxShadow: "var(--shadow-lg)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <strong style={{ fontSize: "13px" }}>Статистика</strong>
+            <button className="icon-btn" onClick={()=>setStatsOpen(false)}>×</button>
+          </div>
+          <StatsDashboard />
+        </div>
+      )}
     </header>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, lazy, Suspense } from "react";
 import { ChatProvider, useChat } from "./context/ChatContext.jsx";
 import { FilesProvider, useFiles } from "./context/FilesContext.jsx";
 import { SessionsProvider, useSessions } from "./context/SessionsContext.jsx";
@@ -6,16 +6,16 @@ import { UIProvider, useUI } from "./context/UIContext.jsx";
 import { SettingsProvider, useSettings } from "./context/SettingsContext.jsx";
 import Sidebar from "./components/Sidebar.jsx";
 import ChatPanel from "./components/ChatPanel.jsx";
-import FilesPanel from "./components/FilesPanel.jsx";
 import TopBar from "./components/TopBar.jsx";
 import SessionTabs from "./components/SessionTabs.jsx";
-import CommandPalette from "./components/CommandPalette.jsx";
-import FileSwitcher from "./components/FileSwitcher.jsx";
-import SettingsModal from "./components/SettingsModal.jsx";
 import Toast from "./components/Toast.jsx";
 import MobileNav from "./components/MobileNav.jsx";
-import DiffApprovalModal from "./components/DiffApprovalModal.jsx";
 import BudgetBar from "./components/BudgetBar.jsx";
+const FilesPanel = lazy(() => import("./components/FilesPanel.jsx"));
+const CommandPalette = lazy(() => import("./components/CommandPalette.jsx"));
+const FileSwitcher = lazy(() => import("./components/FileSwitcher.jsx"));
+const SettingsModal = lazy(() => import("./components/SettingsModal.jsx"));
+const DiffApprovalModal = lazy(() => import("./components/DiffApprovalModal.jsx"));
 
 function Shell() {
   const { leftSidebarOpen, setLeftSidebarOpen, rightPanelOpen, setRightPanelOpen, commandPaletteOpen, setCommandPaletteOpen, settingsOpen, setSettingsOpen } = useUI();
@@ -77,15 +77,15 @@ function Shell() {
         <BudgetBar />
         <div className="shell-content">
           {(!isMobile || mobileView === "chat") && <ChatPanel />}
-          {isMobile && <FilesPanel open={false} onClose={() => setMobileView("chat")} isMobile mobileVisible={mobileView === "files"} />}
+          {isMobile && <Suspense fallback={null}><FilesPanel open={false} onClose={() => setMobileView("chat")} isMobile mobileVisible={mobileView === "files"} /></Suspense>}
         </div>
         {isMobile && <MobileNav view={mobileView} onChange={setMobileView} />}
       </div>
-      {!isMobile && <FilesPanel open={rightPanelOpen} onClose={() => setRightPanelOpen(false)} isMobile={false} mobileVisible={false} />}
-      <CommandPalette />
-      <FileSwitcher />
-      <SettingsModal />
-      <DiffApprovalModal />
+      {!isMobile && <Suspense fallback={null}><FilesPanel open={rightPanelOpen} onClose={() => setRightPanelOpen(false)} isMobile={false} mobileVisible={false} /></Suspense>}
+      <Suspense fallback={null}><CommandPalette /></Suspense>
+      <Suspense fallback={null}><FileSwitcher /></Suspense>
+      <Suspense fallback={null}><SettingsModal /></Suspense>
+      <Suspense fallback={null}><DiffApprovalModal /></Suspense>
       <Toast />
     </div>
   );
