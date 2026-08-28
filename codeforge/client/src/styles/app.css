@@ -2984,3 +2984,13 @@
 .msg-with-actions:hover .msg-fork-btn { opacity: 1; }
 .msg-fork-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
 .chat-empty-search { text-align: center; color: var(--text-tertiary); font-size: 12px; padding: 12px; }
+
+/* msg edit */
+.msg-edit-btn { position: absolute; right: 6px; bottom: 4px; opacity: 0; background: var(--bg-3); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 3px 5px; color: var(--text-tertiary); cursor: pointer; transition: opacity 0.15s; }
+.msg-row-user:hover .msg-edit-btn { opacity: 1; }
+.msg-edit-btn:hover { color: var(--text-primary); }
+.msg-bubble-user { position: relative; padding-bottom: 18px; }
+/* files templates */
+.files-templates { display: flex; gap: 6px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); background: var(--bg-1); flex-wrap: wrap; }
+.template-chip { font-size: 11px; padding: 4px 8px; border-radius: 999px; background: var(--bg-2); border: 1px solid var(--border-subtle); color: var(--text-secondary); cursor: pointer; }
+.template-chip:hover { background: var(--bg-3); color: var(--text-primary); }

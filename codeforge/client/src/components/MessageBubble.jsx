@@ -1,13 +1,17 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
-import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit } from "lucide-react";
+import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit, Pencil } from "lucide-react";
 import ToolCallItem from "./ToolCallItem.jsx";
 import PlanCard from "./PlanCard.jsx";
 import SessionReportPanel from "./SessionReportPanel.jsx";
+import { useChat } from "../context/ChatContext.jsx";
 
 export default function MessageBubble({ message }) {
   const [reasoningOpen, setReasoningOpen] = useState(true);
+  const { sendMessage } = useChat();
+  const [editing, setEditing] = useState(false);
+  const [editVal, setEditVal] = useState(message.content || "");
   const isUser = message.role === "user";
   const hasReasoning = message.reasoning && message.reasoning.trim().length > 0;
 
@@ -20,11 +24,13 @@ export default function MessageBubble({ message }) {
     prevReasoningLen.current = message.reasoning?.length || 0;
   }, [message.reasoning, hasReasoning]);
 
+  // keep editVal in sync if message changes externally
+  React.useEffect(() => { setEditVal(message.content || ""); }, [message.content]);
+
   const hasPlan = !!message.plan;
   const hasTools = message.toolEvents && message.toolEvents.length > 0;
   const isThinking = message.status === "thinking" && !message.content;
   const showTyping = !message.content && !hasReasoning && !hasTools && !hasPlan && !isThinking;
-
   if (isUser) {
     return (
       <motion.div
@@ -34,14 +40,22 @@ export default function MessageBubble({ message }) {
         transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className="msg-bubble msg-bubble-user">
-          {message.images && message.images.length > 0 && (
+          {editing ? (
+            <div style={{ display: "flex", gap: 6, width: "100%" }}>
+              <input value={editVal} onChange={(e) => setEditVal(e.target.value)} style={{ flex: 1, background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, padding: "6px 8px", color: "#fff" }} />
+              <button className="icon-btn" onClick={() => { setEditing(false); if (editVal.trim() && sendMessage) sendMessage(editVal); }}>↩</button>
+              <button className="icon-btn" onClick={() => setEditing(false)}>✕</button>
+            </div>
+          ) : null}
+          {!editing && message.images && message.images.length > 0 && (
             <div className="msg-attached-images">
               {message.images.map((img) => (
                 <img key={img.id || img.name} src={img.dataUrl} alt={img.name} className="msg-attached-image" />
               ))}
             </div>
           )}
-          {message.content && <div className="msg-content">{message.content}</div>}
+          {!editing && message.content && <div className="msg-content">{message.content}</div>}
+          {!editing && <button className="msg-edit-btn" onClick={() => setEditing(true)} title="Редактировать и отправить снова"><Pencil size={11} /></button>}
         </div>
         <div className="msg-avatar msg-avatar-user">
           <User size={14} />

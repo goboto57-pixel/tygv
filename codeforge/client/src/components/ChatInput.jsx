@@ -121,8 +121,15 @@ export default function ChatInput() {
   const removeImage = (id) => setPendingImages((prev) => prev.filter((img) => img.id !== id));
 
   const handleSend = () => {
+    const trimmed = value.trim();
+    // slash commands
+    if (trimmed.startsWith("/")) {
+      const cmd = trimmed.split(/\s+/)[0].toLowerCase();
+      if (cmd === "/clear") { setValue(""); setPendingImages([]); setPendingFiles([]); notify?.("Чат очищен (локально)", "info"); return; }
+      if (cmd === "/stats") { const s = files.length; notify?.(`Файлов: ${s}`, "info"); return; }
+      if (cmd === "/fork") { window.dispatchEvent(new CustomEvent("codeforge:new-chat")); notify?.("Новая ветка", "success"); return; }
+    }
     if ((!value.trim() && pendingImages.length === 0 && pendingFiles.length === 0) || isStreaming) return;
-    // append attached file list to message so agent explicitly knows what to look at
     let msg = value;
     if (pendingFiles.length) {
       const list = pendingFiles.map((f) => f.path).join(", ");

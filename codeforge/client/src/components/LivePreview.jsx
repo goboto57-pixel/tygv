@@ -86,6 +86,7 @@ export default function LivePreview({ files, activeFile }) {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [errors, setErrors] = useState([]);
+  const [device, setDevice] = useState("desktop"); // desktop|tablet|mobile
 
   useEffect(() => {
     const onMsg = (e) => {
@@ -104,6 +105,15 @@ export default function LivePreview({ files, activeFile }) {
       setTimeout(() => URL.revokeObjectURL(url), 15000);
     } catch {}
   }, [srcDoc]);
+  const copyUrl = useCallback(async () => {
+    try {
+      const blob = new Blob([srcDoc], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      await navigator.clipboard.writeText(url);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch {}
+  }, [srcDoc]);
+  const frameStyle = device === "mobile" ? { maxWidth: 375, margin: "0 auto", border: "1px solid var(--border-strong)" } : device === "tablet" ? { maxWidth: 768, margin: "0 auto", border: "1px solid var(--border-strong)" } : {};
 
   const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
   const closeFullscreen = useCallback(() => setIsFullscreen(false), []);
@@ -174,12 +184,16 @@ export default function LivePreview({ files, activeFile }) {
       <div className="live-preview-toolbar">
         <span className="live-preview-label">Превью</span>
         <div className="live-preview-actions">
+          <button className={`icon-btn ${device === "mobile" ? "icon-btn-active" : ""}`} onClick={() => setDevice("mobile")} title="Mobile 375px">📱</button>
+          <button className={`icon-btn ${device === "tablet" ? "icon-btn-active" : ""}`} onClick={() => setDevice("tablet")} title="Tablet 768px">📱</button>
+          <button className={`icon-btn ${device === "desktop" ? "icon-btn-active" : ""}`} onClick={() => setDevice("desktop")} title="Desktop">🖥️</button>
+          <button className="icon-btn" onClick={copyUrl} title="Копировать URL превью"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
           <button className="icon-btn" onClick={toggleFullscreen} title="На весь экран"><Maximize2 size={14} /></button>
         </div>
       </div>
-      {iframe}
+      <div style={frameStyle}>{iframe}</div>
       {errors.length > 0 && (
         <div className="live-preview-errors">
           {errors.map((e, i) => (

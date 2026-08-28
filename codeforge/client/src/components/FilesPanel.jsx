@@ -39,6 +39,27 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
     return { totalBytes, totalLines };
   }, [files]);
 
+  const templates = {
+    react: { path: "src/App.jsx", content: `import { useState } from "react"\nexport default function App(){const [c,setC]=useState(0);return <button onClick={()=>setC(c+1)}>{c}</button>}` },
+    vue: { path: "src/App.vue", content: `<template><button @click="c++">{{c}}</button></template>\n<script setup>import {ref} from "vue";const c=ref(0)</script>` },
+    svelte: { path: "src/App.svelte", content: `<script>let c=0</script><button on:click={()=>c++}>{c}</button>` },
+    html: { path: "index.html", content: `<!doctype html><html><head><meta charset="utf-8"><title>Site</title><link rel="stylesheet" href="style.css"></head><body><h1>Hello</h1><script src="app.js"></script></body></html>` },
+  };
+  const createFromTemplate = (key) => {
+    const t = templates[key]; if (!t) return;
+    if (files.some((f) => f.path === t.path)) { notify?.("Файл уже существует", "error"); return; }
+    setFiles((prev) => [...prev, { path: t.path, content: t.content }]);
+    openFileTab(t.path);
+    notify?.(`Шаблон ${key} → ${t.path}`, "success");
+  };
+  const downloadFolder = async (folder) => {
+    const p = folder || prompt("Папка для скачки (пусто = весь проект):") || "";
+    const clean = p.replace(/^\/+/, "").replace(/\/+$/, "");
+    const toZip = clean ? files.filter((f) => f.path === clean || f.path.startsWith(clean + "/")) : files;
+    if (!toZip.length) { notify?.("Нет файлов", "info"); return; }
+    const { exportZip } = await import("../utils/exportZip.js");
+    exportZip(toZip, `codeforge-${clean || "project"}`, notify);
+  };
   const createNewFile = () => {
     const name = prompt("Имя нового файла (например, src/utils.js):");
     if (!name) return;
@@ -130,6 +151,14 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
             <button className="icon-btn" onClick={renameActive} title="Переименовать"><Pencil size={13} /></button>
             <button className="icon-btn" onClick={deleteActive} title="Удалить"><Trash2 size={13} /></button>
             <button className="icon-btn" onClick={downloadActive} title="Скачать файл"><Download size={13} /></button>
+            <button className="icon-btn" onClick={() => downloadFolder("")} title="Скачать проект ZIP"><Download size={13} /></button>
+          </div>
+          <div className="files-templates">
+            <span style={{ fontSize: "10px", color: "var(--text-tertiary)" }}>Шаблоны:</span>
+            <button className="template-chip" onClick={() => createFromTemplate("react")}>React</button>
+            <button className="template-chip" onClick={() => createFromTemplate("vue")}>Vue</button>
+            <button className="template-chip" onClick={() => createFromTemplate("svelte")}>Svelte</button>
+            <button className="template-chip" onClick={() => createFromTemplate("html")}>HTML</button>
           </div>
         </div>
 
