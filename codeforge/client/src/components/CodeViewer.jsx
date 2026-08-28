@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map, Download, AlignLeft, Search } from "lucide-react";
+import { Copy, Check, GitCompare, Code2, Pencil, Save, X as XIcon, AlertTriangle, Maximize2, Map, Download, AlignLeft, Search, FileText } from "lucide-react";
 import DiffViewer from "./DiffViewer.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";

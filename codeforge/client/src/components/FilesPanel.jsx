@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download, Github } from "lucide-react";
+import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download, Github, Copy, FileText } from "lucide-react";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import { useChat } from "../context/ChatContext.jsx";
