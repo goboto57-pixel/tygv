@@ -23,7 +23,7 @@ const TOOL_LABELS = {
 };
 
 export default function ChatPanel() {
-  const { messages, isStreaming, retryLastTurn, exportChat } = useChat();
+  const { messages, isStreaming, retryLastTurn, exportChat, usage } = useChat();
   const scrollRef = useRef(null);
   const messagesEndRef = useRef(null);
   const rafRef = useRef(null);
@@ -70,6 +70,11 @@ export default function ChatPanel() {
         <div className="chat-toolbar">
           <span className="chat-toolbar-title">Чат</span>
           <div className="chat-toolbar-actions">
+            {usage.prompt_tokens + usage.completion_tokens > 0 && (
+              <span className="chat-toolbar-usage" title="Использовано токенов за этот сеанс">
+                {(usage.prompt_tokens + usage.completion_tokens).toLocaleString("ru-RU")} ток
+              </span>
+            )}
             <button className="icon-btn" title="Повторить последний запрос" aria-label="Повторить" onClick={retryLastTurn}>
               <RotateCcw size={15} />
             </button>

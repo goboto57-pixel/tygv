@@ -6,6 +6,86 @@
 import { runCommand } from "./codeExec.js";
 import { embedTexts } from "./mistralClient.js";
 
+/**
+ * Fetches a public web page and returns its readable text. Intended to let the
+ * agent ground its work in real docs/APIs/examples. Hard-blocks internal and
+ * private addresses to avoid SSRF, caps response size, and strips HTML down to
+ * headings/paragraphs/code/links so the model gets a compact, useful excerpt.
+ */
+async function webFetch(url, prompt) {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+    return { error: "web_fetch requires an absolute http(s) URL." };
+  }
+  let u;
+  try { u = new URL(url); } catch { return { error: "Invalid URL." }; }
+  if (u.protocol !== "http:" && u.protocol !== "https:") {
+    return { error: "Only http(s) URLs are allowed." };
+  }
+  const host = u.hostname.toLowerCase();
+  const blocked = ["localhost", "0.0.0.0"]
+    .concat(host.endsWith(".local") ? [host] : [])
+    .concat(host.endsWith(".internal") ? [host] : [])
+    .concat(host.endsWith(".svc") ? [host] : [])
+    .concat(host.startsWith("127.") || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("169.254.") ? [host] : []);
+  if (blocked.length) return { error: "Fetching internal/private addresses is not allowed." };
+  if (typeof fetch !== "function") return { error: "web_fetch is not available in this environment." };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(u.toString(), {
+      signal: controller.signal,
+      redirect: "follow",
+      headers: { "User-Agent": "CodeForge-Agent/1.0 (+https://codeforge.app)", "Accept": "text/html,application/xhtml+xml,text/markdown,text/plain,*/*" }
+    });
+    if (!res.ok) return { error: `Fetch failed: HTTP ${res.status}` };
+    const buf = await res.arrayBuffer();
+    let text = Buffer.from(buf).toString("utf8");
+    if (text.length > 120 * 1024) text = text.slice(0, 120 * 1024) + "\n…[truncated]";
+    const contentType = res.headers.get("content-type") || "";
+    if (contentType.includes("html") || /<html[\s>]/i.test(text)) {
+      text = extractReadable(text, prompt);
+    }
+    return { result: text };
+  } catch (e) {
+    return { error: `web_fetch error: ${e.message}` };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function extractReadable(html, prompt) {
+  let t = html
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  const codeBlocks = [];
+  t = t.replace(/<(pre|code)[\s\S]*?>([\s\S]*?)<\/(pre|code)>/gi, (_m, _o, body) => {
+    codeBlocks.push(body.replace(/<[^>]+>/g, ""));
+    return " [CODEBLOCK] ";
+  });
+  const headings = [];
+  t = t.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, _lvl, body) => {
+    headings.push(`\n## ${body.replace(/<[^>]+>/g, "")}`);
+    return "";
+  });
+  const links = [];
+  t = t.replace(/<a[^>]+href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, label) => {
+    const lab = label.replace(/<[^>]+>/g, "").trim();
+    if (lab && /^https?:\/\//i.test(href)) links.push(`- ${lab}: ${href}`);
+    return lab;
+  });
+  t = t.replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
+  t = t.replace(/\s+/g, " ").trim();
+  let out = `${headings.join("\n")}\n\n${t}\n`;
+  if (codeBlocks.length) out += `\nCODE BLOCKS:\n${codeBlocks.map((c, i) => `--- block ${i + 1} ---\n${c}`).join("\n")}\n`;
+  if (links.length) out += `\nLINKS:\n${links.join("\n")}\n`;
+  if (prompt) out = `Focus: ${prompt}\n\n${out}`;
+  if (out.length > 30 * 1024) out = out.slice(0, 30 * 1024) + "\n…[truncated]";
+  return out;
+}
+
+
 // Per-request embeddings cache, keyed by fsMap instance. A fresh fsMap is
 // created for every /chat/stream call (see agentLoop.js), so this naturally
 // expires with the request — no cross-user/session leakage, no manual
@@ -505,6 +585,10 @@ export async function executeTool(toolName, args, fsMap) {
       }
       const issues = lintText(args.path, content);
       return { result: issues.length ? issues : ["No obvious issues found."] };
+    }
+
+    case "web_fetch": {
+      return await webFetch(args.url, args.prompt);
     }
 
     default:

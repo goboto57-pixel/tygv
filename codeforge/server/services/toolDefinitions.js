@@ -244,6 +244,22 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "web_fetch",
+      description:
+        "Fetch a public web URL and return its readable text (titles, headings, paragraphs, code blocks, link list) so you can ground your work in real documentation, APIs, or examples. Use for looking up library docs, fixing version-specific errors, or citing sources. Only http/https public URLs — never localhost or internal addresses. Returns extracted text (truncated to ~30KB).",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) URL to fetch" },
+          prompt: { type: "string", description: "Optional: what to look for on the page, to focus the extracted excerpt" }
+        },
+        required: ["url"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "save_memory",
       description:
         "Save a durable note about this project to persistent memory, so future sessions (even after this conversation ends) start with this context already known. Use for things worth remembering long-term: architectural decisions, conventions in use, constraints, gotchas, or explicit user preferences — NOT for routine progress updates or anything already obvious from the files themselves. Keep it short (one clear fact per call).",

@@ -10,7 +10,7 @@ import StatsDashboard from "./StatsDashboard.jsx";
 import { exportZip } from "../utils/exportZip.js";
 
 export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rightPanelOpen, isMobile }) {
-  const { usage } = useChat();
+  const { usage, isStreaming } = useChat();
   const { files, chatId } = useFiles();
   const { takeSnapshot } = useSessions();
   const { setCommandPaletteOpen, setSettingsOpen, focusMode, setFocusMode } = useUI();
@@ -38,9 +38,9 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
         {isMobile ? <Menu size={20} /> : <PanelLeft size={17} />}
       </button>
 
-      <div className="topbar-status" role="status" aria-live="polite">
+      <div className={`topbar-status ${isStreaming ? "streaming" : ""}`} role="status" aria-live="polite">
         <span className="status-dot" aria-hidden="true" />
-        <span className="topbar-status-text">Агент готов</span>
+        <span className="topbar-status-text">{isStreaming ? "Агент работает…" : "Агент готов"}</span>
         {!isMobile && activeModel && <span className="topbar-model-chip">{activeModel.label}</span>}
       </div>
 
