@@ -7,18 +7,32 @@ export function FilesProvider({ children, chatId, notify, initialFiles = [], ses
   const [files, setFilesState] = useState(() => (Array.isArray(initialFiles) ? initialFiles : []));
   const [activeFile, setActiveFile] = useState(null);
   const [openFiles, setOpenFiles] = useState([]);
+  const prevChatIdRef = React.useRef(chatId);
+  const initializedRef = React.useRef(false);
 
   useEffect(() => {
-    let next = Array.isArray(initialFiles) ? initialFiles : [];
-    if (sessionLoaded && next.length === 0 && chatId) {
-      try {
-        const cached = JSON.parse(localStorage.getItem(`codeforge_files_${chatId}`) || "null");
-        if (Array.isArray(cached) && cached.length) next = cached;
-      } catch {}
+    const isChatSwitch = prevChatIdRef.current !== chatId;
+    if (isChatSwitch) {
+      prevChatIdRef.current = chatId;
+      initializedRef.current = true;
+      let next = Array.isArray(initialFiles) ? initialFiles : [];
+      if (sessionLoaded && next.length === 0 && chatId) {
+        try {
+          const cached = JSON.parse(localStorage.getItem(`codeforge_files_${chatId}`) || "null");
+          if (Array.isArray(cached) && cached.length) next = cached;
+        } catch {}
+      }
+      setFilesState(next);
+      setOpenFiles((prev) => prev.filter((p) => next.some((f) => f.path === p)));
+      setActiveFile((prev) => next.some((f) => f.path === prev) ? prev : next[0]?.path || null);
+    } else if (!initializedRef.current && sessionLoaded) {
+      let next = Array.isArray(initialFiles) ? initialFiles : [];
+      if (next.length > 0) {
+        setFilesState(next);
+        setActiveFile((prev) => next.some((f) => f.path === prev) ? prev : next[0]?.path || null);
+        initializedRef.current = true;
+      }
     }
-    setFilesState(next);
-    setOpenFiles((prev) => prev.filter((p) => next.some((f) => f.path === p)));
-    setActiveFile((prev) => next.some((f) => f.path === prev) ? prev : next[0]?.path || null);
   }, [initialFiles, chatId, sessionLoaded]);
 
   const setFiles = useCallback((updater) => {

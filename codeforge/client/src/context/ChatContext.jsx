@@ -67,14 +67,29 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
   useEffect(() => { filesRef.current = files; }, [files]);
   useEffect(() => { sessionMetaRef.current = { chatId, sessionLoaded }; }, [chatId, sessionLoaded]);
 
+  const prevChatIdRef = useRef(chatId);
+  const initializedRef = useRef(false);
   useEffect(() => {
-    setMessages(normalizeRestoredMessages(initialSession));
-    setUsage({ prompt_tokens: 0, completion_tokens: 0 });
-    setPendingPlan(null);
-    setPendingDiff(null);
-    setSessionReport(null);
-    setBudgetWarning(null);
-    setMemoryEntries([]);
+    // Only reset when switching chats, not when same chat's title updates
+    // This fixes "answer appears then disappears" bug
+    if (prevChatIdRef.current !== chatId) {
+      prevChatIdRef.current = chatId;
+      initializedRef.current = true;
+      setMessages(normalizeRestoredMessages(initialSession));
+      setUsage({ prompt_tokens: 0, completion_tokens: 0 });
+      setPendingPlan(null);
+      setPendingDiff(null);
+      setSessionReport(null);
+      setBudgetWarning(null);
+      setMemoryEntries([]);
+    } else if (!initializedRef.current && initialSession) {
+      // First load for this chat (initialSession was null then loaded)
+      const normalized = normalizeRestoredMessages(initialSession);
+      if (normalized.length > 0 && messagesRef.current.length === 0) {
+        setMessages(normalized);
+        initializedRef.current = true;
+      }
+    }
   }, [chatId, initialSession]);
 
   const persistNow = useCallback(async (overrideMessages) => {
