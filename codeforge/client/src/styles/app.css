@@ -3027,3 +3027,53 @@
 .inspect-head { font-size: 11px; color: var(--text-tertiary); padding: 6px 10px; position: sticky; top: 0; background: var(--bg-1); }
 .inspect-pre { font-size: 11px; color: #9fb3c8; padding: 0 10px 10px; white-space: pre-wrap; word-break: break-all; font-family: monospace; }
 .tool-call-dur { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 10px; color: var(--text-tertiary); }
+
+/* ===================== FORCED MOBILE MODE (button toggle) ===================== */
+/* Mirrors the phone (<=640px) layout so the "Мобильный режим" button gives a
+   true phone experience on any screen size. */
+.shell.is-mobile { flex-direction: column; }
+.shell.is-mobile .shell-main { height: 100dvh; }
+.shell.is-mobile .topbar { padding: 8px 10px; gap: 6px; min-height: 52px; }
+.shell.is-mobile .topbar-status-text { display: none; }
+.shell.is-mobile .topbar-model-chip { font-size: 10px; padding: 3px 7px; }
+.shell.is-mobile .usage-pill { font-size: 11px; padding: 4px 8px; }
+.shell.is-mobile .chat-panel { padding-bottom: env(safe-area-inset-bottom); }
+.shell.is-mobile .chat-scroll { padding: 12px 10px; }
+.shell.is-mobile .chat-messages { gap: 14px; }
+.shell.is-mobile .msg-bubble { max-width: 92%; font-size: 14px; line-height: 1.5; }
+.shell.is-mobile .msg-bubble-user { padding: 10px 12px; }
+.shell.is-mobile .msg-bubble-assistant { padding: 12px 12px; }
+.shell.is-mobile .reasoning-toggle { padding: 8px 10px; font-size: 12px; }
+.shell.is-mobile .tool-events { gap: 6px; }
+.shell.is-mobile .tool-call-item { padding: 8px 10px; }
+.shell.is-mobile .chat-input-wrap { padding: 10px 10px max(10px, env(safe-area-inset-bottom)); gap: 8px; }
+.shell.is-mobile .chat-input-box { padding: 8px 10px; border-radius: 16px; }
+.shell.is-mobile .chat-input-box textarea { font-size: 16px; }
+.shell.is-mobile .attached-files-strip, .shell.is-mobile .attached-images-strip { padding: 6px 8px; }
+.shell.is-mobile .files-panel-body { flex-direction: column; }
+.shell.is-mobile .file-tree { max-height: 28vh; border-right: none; border-bottom: 1px solid var(--border-subtle); }
+.shell.is-mobile .editor-tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+.shell.is-mobile .editor-tabs::-webkit-scrollbar { display: none; }
+.shell.is-mobile .code-viewer { font-size: 13px; }
+.shell.is-mobile .code-viewer-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
+.shell.is-mobile .breadcrumbs { font-size: 10px; padding: 6px 10px; overflow-x: auto; }
+.shell.is-mobile .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.shell.is-mobile .stats-card { padding: 10px; }
+.shell.is-mobile .stats-card-value { font-size: 18px; }
+.shell.is-mobile .settings-modal-wrap { padding: 12px; }
+.shell.is-mobile .settings-modal { width: 100%; max-height: 92dvh; border-radius: 16px; }
+.shell.is-mobile .settings-body { padding: 14px; }
+.shell.is-mobile .command-palette { width: 96vw; top: 8vh; }
+.shell.is-mobile .command-palette-input input { font-size: 16px; }
+.shell.is-mobile .editor-split { flex-direction: column; }
+.shell.is-mobile .editor-split-divider { width: 100%; height: 1px; }
+.shell.is-mobile .shell-content { position: relative; }
+.shell.is-mobile .sidebar-mobile-wrap, .shell.is-mobile .files-panel-wrap { width: 100vw; max-width: none; }
+.shell.is-mobile .sidebar { width: 100%; }
+.shell.is-mobile .topbar-status { min-width: 0; flex: 1 1 auto; }
+.shell.is-mobile .topbar-actions { flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding: 2px 0; }
+.shell.is-mobile .topbar-actions::-webkit-scrollbar { display: none; }
+.shell.is-mobile .topbar .icon-btn, .shell.is-mobile .mobile-nav-btn, .shell.is-mobile .chat-input-icon-btn, .shell.is-mobile .chat-send-btn, .shell.is-mobile .model-picker-trigger { min-width: 42px; min-height: 42px; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.shell.is-mobile .mobile-nav { min-height: 64px; padding-top: 4px; box-shadow: 0 -6px 24px rgba(0,0,0,0.18); z-index: 20; }
+.shell.is-mobile .chat-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+.shell.is-mobile .chat-input-wrap { padding-bottom: max(12px, env(safe-area-inset-bottom)); }

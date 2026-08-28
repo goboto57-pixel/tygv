@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight, Focus, BarChart3, Bookmark } from "lucide-react";
+import { Menu, Gauge, Camera, Download, Search, Settings, PanelLeft, PanelRight, Focus, BarChart3, Bookmark, Smartphone } from "lucide-react";
 import { useChat } from "../context/ChatContext.jsx";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useSessions } from "../context/SessionsContext.jsx";
@@ -14,11 +14,17 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
   const { usage, isStreaming } = useChat();
   const { files, chatId } = useFiles();
   const { takeSnapshot } = useSessions();
-  const { setCommandPaletteOpen, setSettingsOpen, focusMode, setFocusMode } = useUI();
+  const { setCommandPaletteOpen, setSettingsOpen, focusMode, setFocusMode, mobileMode, setMobileMode } = useUI();
   const { settings, MODELS } = useSettings();
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
+
+  const toggleMobileMode = () => {
+    const next = !mobileMode;
+    setMobileMode(next);
+    try { localStorage.setItem("codeforge_mobile_mode", next ? "1" : "0"); } catch {}
+  };
 
   const totalTokens = usage.prompt_tokens + usage.completion_tokens;
   const estCost = useMemo(
@@ -47,6 +53,9 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
       </div>
 
       <div className="topbar-actions" role="group" aria-label="Toolbar actions">
+        <button className={`icon-btn ${mobileMode ? "icon-btn-active" : ""}`} onClick={toggleMobileMode} title={mobileMode ? "Выйти из мобильного режима" : "Мобильный режим (интерфейс под телефон)"} aria-label="Мобильный режим">
+          <Smartphone size={17} />
+        </button>
         {!isMobile && (
           <button className="icon-btn" onClick={() => setCommandPaletteOpen(true)} title="Палитра команд (Ctrl/Cmd+K)" aria-label="Команды">
             <Search size={16} />

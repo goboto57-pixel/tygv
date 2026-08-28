@@ -12,6 +12,9 @@ export function UIProvider({ children }) {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [focusMode, setFocusMode] = useState(false);
   const [zenMode, setZenMode] = useState(false);
+  const [mobileMode, setMobileMode] = useState(() => {
+    try { return localStorage.getItem("codeforge_mobile_mode") === "1"; } catch { return false; }
+  });
 
   const notify = useCallback((text, kind = "info") => {
     setToast({ text, kind, id: Date.now() + Math.floor(Math.random() * 1000) });
@@ -46,6 +49,8 @@ export function UIProvider({ children }) {
     setFocusMode,
     zenMode,
     setZenMode,
+    mobileMode,
+    setMobileMode,
   }), [
     toast,
     terminalLog,
@@ -56,6 +61,7 @@ export function UIProvider({ children }) {
     rightPanelOpen,
     focusMode,
     zenMode,
+    mobileMode,
     notify,
     clearTerminal,
     addTerminalEntry,

@@ -19,11 +19,12 @@ const SettingsModal = lazy(() => import("./components/SettingsModal.jsx"));
 const DiffApprovalModal = lazy(() => import("./components/DiffApprovalModal.jsx"));
 
 function Shell() {
-  const { leftSidebarOpen, setLeftSidebarOpen, rightPanelOpen, setRightPanelOpen, commandPaletteOpen, setCommandPaletteOpen, settingsOpen, setSettingsOpen } = useUI();
+  const { leftSidebarOpen, setLeftSidebarOpen, rightPanelOpen, setRightPanelOpen, commandPaletteOpen, setCommandPaletteOpen, settingsOpen, setSettingsOpen, mobileMode } = useUI();
   const { files } = useFiles();
   const { isStreaming } = useChat();
   const [mobileView, setMobileView] = useState("chat");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 900);
+  const mobile = isMobile || mobileMode;
 
   // Auto-open disabled per user request: never open the files panel
   // automatically when files are created. The user opens it explicitly
@@ -60,27 +61,27 @@ function Shell() {
 
   const handleMenu = () => setLeftSidebarOpen((v) => !v);
   const handleFiles = () => {
-    if (isMobile) setMobileView((v) => v === "files" ? "chat" : "files");
+    if (mobile) setMobileView((v) => v === "files" ? "chat" : "files");
     else setRightPanelOpen((v) => !v);
   };
 
   return (
-    <div className={`shell ${leftSidebarOpen ? "left-open" : ""} ${rightPanelOpen ? "right-open" : ""}`}>
-      {leftSidebarOpen && !isMobile && (
+    <div className={`shell ${leftSidebarOpen ? "left-open" : ""} ${rightPanelOpen ? "right-open" : ""} ${mobile ? "is-mobile" : ""}`}>
+      {leftSidebarOpen && !mobile && (
         <div className="sidebar-desktop-overlay" onClick={() => setLeftSidebarOpen(false)} aria-hidden="true" />
       )}
-      <Sidebar open={leftSidebarOpen} onClose={() => setLeftSidebarOpen(false)} isMobile={isMobile} />
+      <Sidebar open={leftSidebarOpen} onClose={() => setLeftSidebarOpen(false)} isMobile={mobile} />
       <div className="shell-main">
-        <TopBar onMenuClick={handleMenu} onFilesClick={handleFiles} leftSidebarOpen={leftSidebarOpen} rightPanelOpen={rightPanelOpen || (isMobile && mobileView === "files")} isMobile={isMobile} />
-        {!isMobile && <SessionTabs />}
+        <TopBar onMenuClick={handleMenu} onFilesClick={handleFiles} leftSidebarOpen={leftSidebarOpen} rightPanelOpen={rightPanelOpen || (mobile && mobileView === "files")} isMobile={mobile} />
+        {!mobile && <SessionTabs />}
         <BudgetBar />
         <div className="shell-content">
-          {(!isMobile || mobileView === "chat") && <ChatPanel />}
-          {isMobile && <Suspense fallback={null}><FilesPanel open={false} onClose={() => setMobileView("chat")} isMobile mobileVisible={mobileView === "files"} /></Suspense>}
+          {(!mobile || mobileView === "chat") && <ChatPanel />}
+          {mobile && <Suspense fallback={null}><FilesPanel open={false} onClose={() => setMobileView("chat")} isMobile mobileVisible={mobileView === "files"} /></Suspense>}
         </div>
-        {isMobile && <MobileNav view={mobileView} onChange={setMobileView} />}
+        {mobile && <MobileNav view={mobileView} onChange={setMobileView} />}
       </div>
-      {!isMobile && <Suspense fallback={null}><FilesPanel open={rightPanelOpen} onClose={() => setRightPanelOpen(false)} isMobile={false} mobileVisible={false} /></Suspense>}
+      {!mobile && <Suspense fallback={null}><FilesPanel open={rightPanelOpen} onClose={() => setRightPanelOpen(false)} isMobile={false} mobileVisible={false} /></Suspense>}
       <Suspense fallback={null}><CommandPalette /></Suspense>
       <Suspense fallback={null}><FileSwitcher /></Suspense>
       <Suspense fallback={null}><SettingsModal /></Suspense>
