@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3 } from "lucide-react";
+import { FolderTree, Code2, Eye, X, TerminalSquare, PanelRightClose, Columns2, Maximize2, Search, Plus, FilePlus, FolderPlus, BarChart3, Pencil, Trash2, Download } from "lucide-react";
 import { useFiles } from "../context/FilesContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import FileTree from "./FileTree.jsx";
@@ -59,6 +59,33 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
     setFiles((prev) => [...prev, { path: keep, content: "" }]);
     notify?.(`Папка ${clean} создана`, "success");
   };
+  const renameActive = () => {
+    if (!activeFile) { notify?.("Выберите файл", "info"); return; }
+    const nv = prompt(`Переименовать ${activeFile} в:`, activeFile);
+    if (!nv || nv === activeFile) return;
+    const clean = nv.replace(/^\/+/, "").trim();
+    if (files.some((f) => f.path === clean)) { notify?.("Файл уже существует", "error"); return; }
+    setFiles((prev) => prev.map((f) => f.path === activeFile ? { ...f, path: clean } : f));
+    openFileTab(clean);
+    notify?.(`Переименован в ${clean}`, "success");
+  };
+  const deleteActive = () => {
+    if (!activeFile) return;
+    if (!confirm(`Удалить ${activeFile}?`)) return;
+    setFiles((prev) => prev.filter((f) => f.path !== activeFile));
+    closeFileTab(activeFile);
+    notify?.(`Удалён ${activeFile}`, "success");
+  };
+  const downloadActive = () => {
+    if (!activeFile) return;
+    const f = files.find((x) => x.path === activeFile);
+    if (!f) return;
+    const blob = new Blob([f.content || ""], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = activeFile.split("/").pop(); a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
 
   const body =
     files.length === 0 ? (
@@ -100,6 +127,9 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
           <div className="files-toolbar-actions">
             <button className="icon-btn" onClick={createNewFile} title="Новый файл"><FilePlus size={14} /></button>
             <button className="icon-btn" onClick={createNewFolder} title="Новая папка"><FolderPlus size={14} /></button>
+            <button className="icon-btn" onClick={renameActive} title="Переименовать"><Pencil size={13} /></button>
+            <button className="icon-btn" onClick={deleteActive} title="Удалить"><Trash2 size={13} /></button>
+            <button className="icon-btn" onClick={downloadActive} title="Скачать файл"><Download size={13} /></button>
           </div>
         </div>
 

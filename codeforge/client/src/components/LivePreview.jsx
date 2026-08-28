@@ -77,11 +77,33 @@ export default function LivePreview({ files, activeFile }) {
       if (content.includes("</body>")) content = content.replace("</body>", `${scriptTags}</body>`);
       else content += scriptTags;
     }
+    const errorScript = `<script>(function(){try{var o=console.error;console.error=function(){try{parent.postMessage({type:'preview-error',text:Array.from(arguments).join(' ')},'*')}catch(e){} return o.apply(console,arguments)};window.onerror=function(m,s,l,c,e){try{parent.postMessage({type:'preview-error',text:m+' at '+l+':'+c},'*')}catch(e){}};window.onunhandledrejection=function(e){try{parent.postMessage({type:'preview-error',text:String(e.reason)},'*')}catch(e){}};}catch(e){}})();</script>`;
+    if (content.includes("</body>")) content = content.replace("</body>", errorScript + "</body>");
+    else content += errorScript;
     return content;
   }, [files, activeFile]);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [errors, setErrors] = useState([]);
+
+  useEffect(() => {
+    const onMsg = (e) => {
+      if (e.data && e.data.type === "preview-error") setErrors((prev) => [...prev.slice(-8), String(e.data.text).slice(0, 300)]);
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [refreshKey]);
+  useEffect(() => { setErrors([]); }, [srcDoc]);
+
+  const openInNewTab = useCallback(() => {
+    try {
+      const blob = new Blob([srcDoc], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    } catch {}
+  }, [srcDoc]);
 
   const toggleFullscreen = useCallback(() => setIsFullscreen((v) => !v), []);
   const closeFullscreen = useCallback(() => setIsFullscreen(false), []);
@@ -112,6 +134,7 @@ export default function LivePreview({ files, activeFile }) {
         <div className="live-preview-toolbar">
           <span className="live-preview-label">Превью</span>
           <div className="live-preview-actions">
+            <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
             <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
             <button className="icon-btn" onClick={toggleFullscreen} title="Выйти из полноэкранного (Esc)"><X size={16} /></button>
           </div>
@@ -151,11 +174,20 @@ export default function LivePreview({ files, activeFile }) {
       <div className="live-preview-toolbar">
         <span className="live-preview-label">Превью</span>
         <div className="live-preview-actions">
+          <button className="icon-btn" onClick={openInNewTab} title="Открыть в новой вкладке"><ExternalLink size={14} /></button>
           <button className="icon-btn" onClick={() => setRefreshKey((k) => k + 1)} title="Обновить превью"><RefreshCw size={14} /></button>
           <button className="icon-btn" onClick={toggleFullscreen} title="На весь экран"><Maximize2 size={14} /></button>
         </div>
       </div>
       {iframe}
+      {errors.length > 0 && (
+        <div className="live-preview-errors">
+          {errors.map((e, i) => (
+            <div key={i} className="live-preview-error">⚠ {e}</div>
+          ))}
+          <button className="live-preview-errors-clear" onClick={() => setErrors([])}>очистить</button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2967,3 +2967,11 @@
 .status-dot { background: var(--accent-success); }
 .topbar-status.streaming .status-dot { background: var(--text-primary); }
 .cf-live-dot { background: var(--text-primary); }
+
+/* preview errors */
+.live-preview-errors {
+  background: #1a0f0f; border-top: 1px solid #3a1a1a; color: #f0a0a0;
+  font-size: 11px; font-family: var(--font-mono); padding: 6px 10px; max-height: 80px; overflow: auto;
+}
+.live-preview-error { white-space: pre-wrap; word-break: break-all; margin: 2px 0; }
+.live-preview-errors-clear { margin-top: 4px; font-size: 10px; background: transparent; border: 1px solid #5a2a2a; color: #f0a0a0; border-radius: 4px; padding: 2px 6px; cursor: pointer; }
