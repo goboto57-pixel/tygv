@@ -53,31 +53,53 @@ function jaccardSimilarity(a, b) {
   return intersection.size / union.size;
 }
 
+const memoryLocks = new Map();
+async function withMemoryLock(scopeId, fn) {
+  const prev = memoryLocks.get(scopeId) || Promise.resolve();
+  let release;
+  const next = new Promise((r) => (release = r));
+  memoryLocks.set(scopeId, prev.then(() => next));
+  await prev;
+  try { return await fn(); } finally { release(); }
+}
+
+function sanitizeForPrompt(text) {
+  // Prevent stored prompt injection: neutralize common injection patterns
+  return String(text)
+    .replace(/\[SYSTEM\]/gi, "[SYS]")
+    .replace(/ignore previous/gi, "ignore-previous")
+    .replace(/<\/?system>/gi, "")
+    .slice(0, MAX_ENTRY_LEN);
+}
+
 export async function saveMemory(scopeId, { text, category = "note" }) {
   if (!scopeId || !text) return { saved: false };
-  const trimmedText = String(text).slice(0, MAX_ENTRY_LEN).trim();
+  const sanitized = sanitizeForPrompt(text);
+  const trimmedText = sanitized.trim();
   if (!trimmedText) return { saved: false };
+  // Validate category
+  const safeCategory = String(category).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30) || "note";
 
-  const existing = await loadMemory(scopeId);
+  return withMemoryLock(scopeId, async () => {
+    const existing = await loadMemory(scopeId);
 
-  // Skip near-duplicates: same category + high word overlap (Jaccard > 0.8)
-  // This is more robust than substring matching and avoids false positives
-  // like "uses TypeScript" vs "uses TypeScript strict mode".
-  const isDuplicate = existing.some(
-    (e) => e.category === category && jaccardSimilarity(e.text, trimmedText) > 0.8
-  );
-  if (isDuplicate) return { saved: false, reason: "duplicate" };
+    // Skip near-duplicates: same category + high word overlap (Jaccard > 0.8)
+    const isDuplicate = existing.some(
+      (e) => e.category === safeCategory && jaccardSimilarity(e.text, trimmedText) > 0.8
+    );
+    if (isDuplicate) return { saved: false, reason: "duplicate" };
 
-  const entry = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    text: trimmedText,
-    category,
-    createdAt: new Date().toISOString()
-  };
+    const entry = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text: trimmedText,
+      category: safeCategory,
+      createdAt: new Date().toISOString()
+    };
 
-  const next = [...existing, entry].slice(-MAX_ENTRIES);
-  await saveJson(memoryId(scopeId), { entries: next }, "memory");
-  return { saved: true, entry };
+    const next = [...existing, entry].slice(-MAX_ENTRIES);
+    await saveJson(memoryId(scopeId), { entries: next }, "memory");
+    return { saved: true, entry };
+  });
 }
 
 export async function deleteMemoryEntry(scopeId, entryId) {
@@ -101,8 +123,11 @@ export function renderMemoryForPrompt(entries) {
   if (!entries || entries.length === 0) return "";
   const byCategory = {};
   for (const e of entries) {
-    byCategory[e.category] = byCategory[e.category] || [];
-    byCategory[e.category].push(e.text);
+    // sanitize on render as defense in depth
+    const safeText = String(e.text).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, MAX_ENTRY_LEN);
+    const safeCat = String(e.category).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30);
+    byCategory[safeCat] = byCategory[safeCat] || [];
+    byCategory[safeCat].push(safeText);
   }
   const sections = Object.entries(byCategory).map(
     ([cat, texts]) => `${cat.toUpperCase()}:\n${texts.map((t) => `- ${t}`).join("\n")}`

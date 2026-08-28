@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { ChatProvider } from "./context/ChatContext.jsx";
-import { FilesProvider } from "./context/FilesContext.jsx";
+import { ChatProvider, useChat } from "./context/ChatContext.jsx";
+import { FilesProvider, useFiles } from "./context/FilesContext.jsx";
 import { SessionsProvider, useSessions } from "./context/SessionsContext.jsx";
 import { UIProvider, useUI } from "./context/UIContext.jsx";
 import { SettingsProvider, useSettings } from "./context/SettingsContext.jsx";
@@ -19,8 +19,25 @@ import BudgetBar from "./components/BudgetBar.jsx";
 
 function Shell() {
   const { leftSidebarOpen, setLeftSidebarOpen, rightPanelOpen, setRightPanelOpen, commandPaletteOpen, setCommandPaletteOpen, settingsOpen, setSettingsOpen } = useUI();
+  const { files } = useFiles();
+  const { isStreaming } = useChat();
   const [mobileView, setMobileView] = useState("chat");
   const [isMobile, setIsMobile] = useState(() => window.innerWidth < 900);
+
+  // Auto-open files panel when agent starts creating files
+  useEffect(() => {
+    if (isStreaming && files.length > 0 && !rightPanelOpen && !isMobile) {
+      setRightPanelOpen(true);
+    }
+  }, [isStreaming, files.length, rightPanelOpen, isMobile, setRightPanelOpen]);
+
+  useEffect(() => {
+    if (files.length > 0 && !rightPanelOpen && !isMobile) {
+      // also auto-open when files appear (e.g. after first tool call)
+      const t = setTimeout(() => setRightPanelOpen(true), 400);
+      return () => clearTimeout(t);
+    }
+  }, [files.length]);
 
   useEffect(() => {
     const onResize = () => setIsMobile(window.innerWidth < 900);

@@ -7,9 +7,18 @@ import PlanCard from "./PlanCard.jsx";
 import SessionReportPanel from "./SessionReportPanel.jsx";
 
 export default function MessageBubble({ message }) {
-  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const [reasoningOpen, setReasoningOpen] = useState(true);
   const isUser = message.role === "user";
   const hasReasoning = message.reasoning && message.reasoning.trim().length > 0;
+
+  // Auto-open reasoning when streaming starts, auto-keep open while reasoning grows
+  const prevReasoningLen = React.useRef(0);
+  React.useEffect(() => {
+    if (hasReasoning && message.reasoning.length > prevReasoningLen.current) {
+      setReasoningOpen(true);
+    }
+    prevReasoningLen.current = message.reasoning?.length || 0;
+  }, [message.reasoning, hasReasoning]);
 
   if (isUser) {
     return (

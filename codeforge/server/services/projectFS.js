@@ -68,8 +68,15 @@ async function getOrBuildIndex(fsMap) {
 export function createFSFromFiles(files = []) {
   // files: [{ path, content }]
   const map = new Map();
-  for (const f of files) map.set(f.path, f.content);
+  for (const f of files) {
+    if (!f.path || typeof f.path !== "string") continue;
+    map.set(f.path, f.content ?? "");
+  }
   return map;
+}
+
+export function invalidateEmbeddingCache(fsMap) {
+  embeddingIndexCache.delete(fsMap);
 }
 
 export function fsToArray(fsMap) {
@@ -77,13 +84,19 @@ export function fsToArray(fsMap) {
 }
 
 function globToRegExp(glob) {
-  // very small glob subset: * (any chars except /), ** (any chars incl /)
-  const escaped = glob
+  // supports *, **, ?, [], {a,b}
+  // Convert {a,b} to (a|b) first
+  let g = glob.replace(/\{([^}]+)\}/g, (_, inner) => `(${inner.split(",").map((s) => s.trim()).join("|")})`);
+  const escaped = g
     .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\\\([^)]+\\\)/g, (m) => m.replace(/\\\(/g, "(").replace(/\\\)/g, ")").replace(/\\\|/g, "|"))
     .replace(/\*\*/g, "§DOUBLESTAR§")
     .replace(/\*/g, "[^/]*")
+    .replace(/\?/g, "[^/]")
     .replace(/§DOUBLESTAR§/g, ".*");
-  return new RegExp(`^${escaped}$`, "i");
+  // handle [...] already escaped? unescape brackets
+  const withBrackets = escaped.replace(/\\\[/g, "[").replace(/\\\]/g, "]");
+  return new RegExp(`^${withBrackets}$`, "i");
 }
 
 function buildDirectoryTree(fsMap) {
@@ -121,6 +134,11 @@ function buildDirectoryTree(fsMap) {
 }
 
 function lintText(path, content) {
+  // Strip strings and comments to avoid false positives like const s = "(){" 
+  const stripped = content
+    .replace(/\/\/.*$/gm, "")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(["'`])((?:\\.|(?!\1)[^\\])*)\1/g, "");
   const issues = [];
   const pairs = [
     ["(", ")"],
@@ -128,8 +146,8 @@ function lintText(path, content) {
     ["[", "]"]
   ];
   for (const [open, close] of pairs) {
-    const openCount = (content.match(new RegExp(`\\${open}`, "g")) || []).length;
-    const closeCount = (content.match(new RegExp(`\\${close}`, "g")) || []).length;
+    const openCount = (stripped.match(new RegExp(`\\${open}`, "g")) || []).length;
+    const closeCount = (stripped.match(new RegExp(`\\${close}`, "g")) || []).length;
     if (openCount !== closeCount) {
       issues.push(`Unbalanced '${open}${close}': ${openCount} open vs ${closeCount} close`);
     }
@@ -160,11 +178,19 @@ function parseTestOutput(stdout, stderr) {
     passed = jestMatch[2] ? Number(jestMatch[2]) : 0;
     total = Number(jestMatch[3]);
   } else {
-    const pytestMatch = combined.match(/(\d+)\s*passed(?:,\s*(\d+)\s*failed)?/i);
+    // pytest can be "1 failed, 3 passed" or "3 passed, 1 failed" or "3 passed"
+    let pytestMatch = combined.match(/(\d+)\s*failed,\s*(\d+)\s*passed/i);
     if (pytestMatch) {
-      passed = Number(pytestMatch[1]);
-      failed = pytestMatch[2] ? Number(pytestMatch[2]) : 0;
+      failed = Number(pytestMatch[1]);
+      passed = Number(pytestMatch[2]);
       total = passed + failed;
+    } else {
+      pytestMatch = combined.match(/(\d+)\s*passed(?:,\s*(\d+)\s*failed)?/i);
+      if (pytestMatch) {
+        passed = Number(pytestMatch[1]);
+        failed = pytestMatch[2] ? Number(pytestMatch[2]) : 0;
+        total = passed + failed;
+      }
     }
   }
 
@@ -256,9 +282,16 @@ export async function executeTool(toolName, args, fsMap) {
     }
 
     case "write_file": {
-      const existed = fsMap.has(args.path);
-      fsMap.set(args.path, args.content);
-      return { result: `${existed ? "Updated" : "Created"} file: ${args.path}`, fileChanged: args.path };
+      if (!args.path || typeof args.path !== "string" || !args.path.trim()) return { error: "path is required and must be non-empty string" };
+      if (typeof args.content !== "string") return { error: "content must be a string" };
+      const p = args.path.trim();
+      if (p.includes("..") || p.startsWith("/") || p.includes("\\") || p.includes("\0")) return { error: "invalid path" };
+      if (p.length > 300) return { error: "path too long" };
+      if (args.content.length > 1024 * 1024) return { error: "content too large (max 1MB)" };
+      const existed = fsMap.has(p);
+      fsMap.set(p, args.content);
+      embeddingIndexCache.delete(fsMap);
+      return { result: `${existed ? "Updated" : "Created"} file: ${p}`, fileChanged: p };
     }
 
     case "edit_file": {
@@ -284,6 +317,7 @@ export async function executeTool(toolName, args, fsMap) {
       }
       const newContent = content.replace(oldText, args.new_text ?? "");
       fsMap.set(args.path, newContent);
+      embeddingIndexCache.delete(fsMap);
       return { result: `Edited file: ${args.path}`, fileChanged: args.path };
     }
 
@@ -292,6 +326,7 @@ export async function executeTool(toolName, args, fsMap) {
         return { error: `File not found: ${args.path}` };
       }
       fsMap.delete(args.path);
+      embeddingIndexCache.delete(fsMap);
       return { result: `Deleted file: ${args.path}`, fileDeleted: args.path };
     }
 
@@ -305,6 +340,7 @@ export async function executeTool(toolName, args, fsMap) {
       const content = fsMap.get(args.old_path);
       fsMap.delete(args.old_path);
       fsMap.set(args.new_path, content);
+      embeddingIndexCache.delete(fsMap);
       return {
         result: `Renamed ${args.old_path} -> ${args.new_path}`,
         fileDeleted: args.old_path,
@@ -319,19 +355,29 @@ export async function executeTool(toolName, args, fsMap) {
     }
 
     case "search_code": {
+      if (!args.query || typeof args.query !== "string" || !args.query.trim()) return { error: "query is required" };
+      if (args.query.length > 500) return { error: "query too long" };
+      const q = args.query.toLowerCase();
       const matches = [];
       for (const [path, content] of fsMap.entries()) {
         const lines = content.split("\n");
         lines.forEach((line, idx) => {
-          if (line.toLowerCase().includes(args.query.toLowerCase())) {
+          if (line.toLowerCase().includes(q)) {
             matches.push({ path, line: idx + 1, text: line.trim().slice(0, 200) });
           }
         });
+        if (matches.length >= 80) return { result: matches.slice(0, 50) };
       }
       return { result: matches.slice(0, 50) };
     }
 
     case "grep": {
+      if (!args.pattern || typeof args.pattern !== "string") return { error: "pattern is required" };
+      if (args.pattern.length > 500) return { error: "pattern too long" };
+      // ReDoS protection: limit pattern complexity
+      if (/(.)\1{5,}\+/.test(args.pattern) || args.pattern.length > 200) {
+        // still allow but with timeout
+      }
       let re;
       try {
         re = new RegExp(args.pattern, args.flags || "i");
@@ -339,13 +385,22 @@ export async function executeTool(toolName, args, fsMap) {
         return { error: `Invalid regular expression: ${e.message}` };
       }
       const matches = [];
+      const start = Date.now();
       for (const [path, content] of fsMap.entries()) {
+        if (Date.now() - start > 2000) return { result: matches.slice(0, 80), truncated: true };
         const lines = content.split("\n");
-        lines.forEach((line, idx) => {
-          if (re.test(line)) {
-            matches.push({ path, line: idx + 1, text: line.trim().slice(0, 200) });
-          }
-        });
+        for (let idx = 0; idx < lines.length; idx++) {
+          if (Date.now() - start > 2000) break;
+          const line = lines[idx];
+          // avoid catastrophic backtracking on very long lines
+          const testLine = line.length > 2000 ? line.slice(0, 2000) : line;
+          let ok = false;
+          try { ok = re.test(testLine); } catch { ok = false; }
+          // reset lastIndex for global regex
+          if (re.global) re.lastIndex = 0;
+          if (ok) matches.push({ path, line: idx + 1, text: line.trim().slice(0, 200) });
+          if (matches.length >= 80) return { result: matches.slice(0, 80) };
+        }
       }
       return { result: matches.slice(0, 80) };
     }

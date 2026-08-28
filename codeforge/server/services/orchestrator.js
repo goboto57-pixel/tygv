@@ -7,12 +7,17 @@ import { geminiQuickAnswer } from "./geminiClient.js";
  * reads both takes and produces one merged decision (approach + concrete plan) that
  * the main agent loop is seeded with. Runs the two "opinions" in parallel for latency.
  */
+function escapePrompt(s) {
+  return String(s).replace(/"""/g, '"').slice(0, 4000);
+}
 export async function runCouncil({ taskText, projectSummary }) {
-  const analysisPrompt = `Task from the user:\n"""${taskText}"""\n\nProject context:\n${projectSummary || "(empty project)"}\n\nGive a short technical analysis (max ~120 words): what's the best approach, what could go wrong, what should be prioritized. Be concrete and opinionated, not generic.`;
+  const safeTask = escapePrompt(taskText);
+  const safeSummary = escapePrompt(projectSummary);
+  const analysisPrompt = `Task from the user:\n"""${safeTask}"""\n\nProject context:\n${safeSummary || "(empty project)"}\n\nGive a short technical analysis (max ~120 words): what's the best approach, what could go wrong, what should be prioritized. Be concrete and opinionated, not generic.`;
 
   const [geminiView, mistralView] = await Promise.allSettled([
     geminiQuickAnswer({ prompt: analysisPrompt, model: "gemini-3.7-flash" }),
-    quickMistralAnswer(analysisPrompt, "mistral-large-latest")
+    quickMistralAnswer(analysisPrompt, "mistral-large-latest", null)
   ]);
 
   const geminiText =
@@ -22,17 +27,18 @@ export async function runCouncil({ taskText, projectSummary }) {
 
   const synthesisPrompt = `Two AI analyses of the same coding task are below. Reconcile them into ONE decisive, concrete plan of action (bullet points, max ~10 lines). Where they disagree, pick the stronger technical argument and briefly say why in one clause. Don't mention "Gemini" or "Mistral" by name in the output — just give the final plan as if you decided it yourself.\n\n--- Analysis A ---\n${geminiText}\n\n--- Analysis B ---\n${mistralText}`;
 
-  const decision = await quickMistralAnswer(synthesisPrompt, "mistral-large-latest");
+  const decision = await quickMistralAnswer(synthesisPrompt, "mistral-large-latest", null);
 
   return { geminiText, mistralText, decision };
 }
 
-async function quickMistralAnswer(prompt, model) {
+async function quickMistralAnswer(prompt, model, signal) {
   let text = "";
   await streamMistralChat({
     model,
     messages: [{ role: "user", content: prompt }],
     tools: null,
+    signal,
     onChunk: (chunk) => {
       if (chunk.type === "content") text += chunk.text;
     }
