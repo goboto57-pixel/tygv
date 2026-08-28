@@ -5,7 +5,7 @@ import { useSessions } from "./SessionsContext.jsx";
 
 const WORKSPACE_KEY = "codeforge_workspace_id";
 
-function getWorkspaceId() {
+export function getWorkspaceId() {
   try {
     let id = localStorage.getItem(WORKSPACE_KEY);
     if (!id) {

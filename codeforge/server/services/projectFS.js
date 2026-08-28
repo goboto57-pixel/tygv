@@ -591,7 +591,63 @@ export async function executeTool(toolName, args, fsMap) {
       return await webFetch(args.url, args.prompt);
     }
 
+    case "check_preview": {
+      return checkPreview(fsMap, args && args.entry);
+    }
+
     default:
       return { error: `Unknown tool: ${toolName}` };
   }
+}
+
+/**
+ * Statically validate the project as a runnable website and return a report.
+ */
+export function checkPreview(fsMap, entry) {
+  const issues = [];
+  const paths = Array.from(fsMap.keys());
+
+  let htmlPath = entry && fsMap.has(entry.replace(/^\/+/, "")) ? entry.replace(/^\/+/, "") : null;
+  if (!htmlPath) {
+    const idx = paths.find((p) => p === "index.html");
+    if (idx) htmlPath = idx;
+  }
+  if (!htmlPath) {
+    const any = paths.find((p) => p.endsWith(".html"));
+    if (any) htmlPath = any;
+  }
+
+  if (!htmlPath) {
+    return { ok: false, entry: null, issues: ["No HTML entry point found (expected index.html or any .html file)."] };
+  }
+
+  const html = String(fsMap.get(htmlPath) || "");
+  const lower = html.toLowerCase();
+
+  if (!/<html[\s>]/.test(lower)) issues.push(`<html> tag missing in ${htmlPath}`);
+  if (!/<head[\s>]/.test(lower)) issues.push(`<head> tag missing in ${htmlPath}`);
+  if (!/<body[\s>]/.test(lower)) issues.push(`<body> tag missing in ${htmlPath}`);
+
+  const collectRefs = (re) => {
+    let m;
+    const out = [];
+    while ((m = re.exec(html)) !== null) out.push(m[1]);
+    return out;
+  };
+  const linkRefs = collectRefs(/<link[^>]+href=["']([^"']+)["']/gi);
+  const scriptRefs = collectRefs(/<script[^>]+src=["']([^"']+)["']/gi);
+
+  const checkRef = (ref) => {
+    if (/^(https?:)?\/\//i.test(ref) || ref.startsWith("data:") || ref.startsWith("#") || ref.startsWith("mailto:")) return;
+    const norm = ref.replace(/^\/+/, "").split("?")[0].split("#")[0];
+    if (!norm) return;
+    const candidate = htmlPath.includes("/") ? htmlPath.split("/").slice(0, -1).concat(norm).join("/") : norm;
+    if (!fsMap.has(candidate) && !fsMap.has(norm)) {
+      issues.push(`Missing referenced asset: ${ref} (from ${htmlPath})`);
+    }
+  };
+  linkRefs.forEach(checkRef);
+  scriptRefs.forEach(checkRef);
+
+  return { ok: issues.length === 0, entry: htmlPath, referenced: linkRefs.concat(scriptRefs).length, issues };
 }

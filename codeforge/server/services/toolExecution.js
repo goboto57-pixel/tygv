@@ -8,7 +8,8 @@ export const READ_ONLY_TOOLS = new Set([
   "grep",
   "semantic_search",
   "lint_file",
-  "web_fetch"
+  "web_fetch",
+  "check_preview"
 ]);
 
 export function splitToolCalls(calls = []) {

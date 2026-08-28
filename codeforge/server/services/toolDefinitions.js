@@ -244,6 +244,21 @@ export const toolDefinitions = [
   {
     type: "function",
     function: {
+      name: "check_preview",
+      description:
+        "Statically validate the current project as a runnable website before declaring done: checks that an HTML entry point exists, that <html>/<head>/<body> are present, and that every local CSS/JS asset referenced by <link>/<script src> actually exists in the project. Returns a JSON report { ok, issues } so you can fix missing/broken references. Call this after building a site and before your final summary.",
+      parameters: {
+        type: "object",
+        properties: {
+          entry: { type: "string", description: "Optional HTML entry file (default: index.html or the first .html file)" }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "web_fetch",
       description:
         "Fetch a public web URL and return its readable text (titles, headings, paragraphs, code blocks, link list) so you can ground your work in real documentation, APIs, or examples. Use for looking up library docs, fixing version-specific errors, or citing sources. Only http/https public URLs — never localhost or internal addresses. Returns extracted text (truncated to ~30KB).",

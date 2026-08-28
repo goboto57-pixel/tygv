@@ -2791,3 +2791,39 @@
 .status-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-success); flex-shrink: 0; transition: background 0.2s ease; }
 .topbar-status.streaming .status-dot { background: var(--brand); animation: cf-pulse 1.4s ease-out infinite; }
 .topbar-status.streaming .topbar-status-text { color: var(--brand-dim); }
+
+/* Memory modal */
+.memory-modal { width: min(560px, 94vw); max-height: 80vh; display: flex; flex-direction: column; }
+.memory-scope { font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); background: var(--bg-2); padding: 2px 7px; border-radius: 999px; border: 1px solid var(--border-subtle); }
+.memory-search { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border-subtle); color: var(--text-tertiary); }
+.memory-search-input { flex: 1; background: transparent; border: none; color: var(--text-primary); font-size: 13px; outline: none; }
+.memory-list { overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.memory-empty { color: var(--text-tertiary); font-size: 12.5px; padding: 18px 8px; text-align: center; line-height: 1.6; }
+.memory-item { background: var(--bg-1); border: 1px solid var(--border-subtle); border-radius: var(--radius-md); padding: 11px 12px; transition: border-color 0.15s ease; }
+.memory-item:hover { border-color: var(--brand-bg-strong); }
+.memory-item-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.memory-cat { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--brand-dim); background: var(--brand-bg); padding: 2px 8px; border-radius: 999px; }
+.memory-key { font-weight: 600; font-size: 13px; color: var(--text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.memory-del { color: var(--text-tertiary); }
+.memory-del:hover { color: var(--accent-danger); }
+.memory-value { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.memory-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.memory-tag { font-size: 10.5px; color: var(--text-tertiary); background: var(--bg-2); padding: 1px 7px; border-radius: 999px; }
+
+/* Modal base (used by MemoryModal and others) */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(7, 8, 12, 0.6); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px;
+  animation: ov-in 0.16s ease;
+}
+@keyframes ov-in { from { opacity: 0; } to { opacity: 1; } }
+.modal {
+  background: var(--bg-2); border: 1px solid var(--border-strong); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg); width: min(480px, 96vw); max-height: 86vh; overflow: hidden;
+  animation: modal-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes modal-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } to { opacity: 1; transform: none; } }
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); }
+.modal-title-group { display: flex; align-items: center; gap: 8px; color: var(--text-primary); }
+.modal-title { font-weight: 600; font-size: 13.5px; }
+.modal-head-actions { display: flex; align-items: center; gap: 4px; }
