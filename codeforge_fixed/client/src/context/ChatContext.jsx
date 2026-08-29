@@ -321,6 +321,22 @@ export function ChatProvider({ children, settings, notify, chatId, initialSessio
         setSessionReport({ metrics: evt.metrics, rolledBack: evt.rolledBack, ts: Date.now() });
         setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, sessionReport: { metrics: evt.metrics, rolledBack: evt.rolledBack } } : m));
         break;
+      case "perf":
+        // Where the turn's wall-clock time actually went — see PerfPanel.jsx.
+        setMessages((prev) => prev.map((m) => m.id === aId ? {
+          ...m,
+          perf: {
+            totalMs: evt.totalMs,
+            modelMs: evt.modelMs,
+            modelCalls: evt.modelCalls,
+            rateLimitWaitMs: evt.rateLimitWaitMs,
+            rateLimitHits: evt.rateLimitHits,
+            toolMs: evt.toolMs,
+            toolCalls: evt.toolCalls,
+            otherMs: evt.otherMs
+          }
+        } : m));
+        break;
       case "memory_saved":
         setMemoryEntries((prev) => [...prev, evt.entry]);
         setMessages((prev) => prev.map((m) => m.id === aId ? { ...m, memorySaved: [...(m.memorySaved || []), evt.entry] } : m));

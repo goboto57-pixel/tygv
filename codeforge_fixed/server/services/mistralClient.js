@@ -1,5 +1,6 @@
 import fetch from "node-fetch";
 import FormData from "form-data";
+import { getMaxTokens } from "./taskComplexity.js";
 
 const MISTRAL_API_URL = "https://api.mistral.ai/v1/chat/completions";
 const MISTRAL_TRANSCRIPTION_URL = "https://api.mistral.ai/v1/audio/transcriptions";
@@ -88,17 +89,15 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
     throw new Error("MISTRAL_API_KEY is not configured on the server.");
   }
 
-  // Economy: adaptive cap — fix 2500, simple site 6000, general 8000, big 12000.
-  // Previous caps (1500/3500/4500/6000) routinely cut off multi-file sites
-  // mid-generation (truncated HTML/CSS/JS => broken/ugly preview) — raised
-  // well above what a real landing page or small app needs to finish in one
-  // completion, matching what the official Mistral console effectively allows.
+  // Economy: adaptive cap — single shared classifier, see taskComplexity.js.
+  // This used to be its own regex copy that had drifted from the loop-count
+  // classifier in agentLoop.js (only recognized "landing" for the cheap
+  // tier, not plain "сайт"/"app"/"website"), so an ordinary "make me a
+  // site" request got a cheap loop budget but the expensive 8000-token
+  // default cap — the actual cause of "simple" turns taking minutes.
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
   const lastStr = typeof lastUser === "string" ? lastUser : Array.isArray(lastUser) ? lastUser.map((p) => p.text || "").join(" ") : "";
-  let adaptiveMax = 8000;
-  if (/(фикс|поправь|исправь|мелкий|one.?line|small fix)/i.test(lastStr) && lastStr.length < 120) adaptiveMax = 2500;
-  else if (/(простой сайт|одностраничник|лендинг|landing)/i.test(lastStr)) adaptiveMax = 6000;
-  else if (/(большой|сложный|enterprise|многостраничный)/i.test(lastStr)) adaptiveMax = 12000;
+  const adaptiveMax = getMaxTokens(lastStr);
   const body = {
     model: resolvedModel,
     messages,

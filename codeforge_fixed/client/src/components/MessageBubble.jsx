@@ -5,6 +5,7 @@ import { ChevronDown, Brain, User, Sparkles, CheckCircle2, XCircle, BrainCircuit
 import ToolCallItem from "./ToolCallItem.jsx";
 import PlanCard from "./PlanCard.jsx";
 import SessionReportPanel from "./SessionReportPanel.jsx";
+import PerfPanel from "./PerfPanel.jsx";
 import { useChat } from "../context/ChatContext.jsx";
 
 // Full diagnostic card for agent-side errors (Mistral API 4xx/5xx, network
@@ -264,6 +265,8 @@ export default function MessageBubble({ message }) {
         )}
 
         {message.sessionReport && <SessionReportPanel report={message.sessionReport} />}
+
+        {message.perf && <PerfPanel perf={message.perf} />}
 
         {message.errorMessage && (
           <ErrorDetailCard message={message.errorMessage} detail={message.errorDetail} stack={message.errorStack} />

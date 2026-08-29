@@ -8,6 +8,8 @@ import { splitToolCalls } from "./toolExecution.js";
 import { createBudgetTracker } from "./budgetTracker.js";
 import { computeSessionMetrics } from "./sessionMetrics.js";
 import { runMistralWebSearch } from "./webSearchClient.js";
+import { buildSingleShotSystemPrompt, parseSingleShotResponse, isProjectSmallEnoughForSingleShot } from "./singleShotGenerator.js";
+import { getMaxLoops, getMaxTokens } from "./taskComplexity.js";
 import { ensureAgent, startConversation, appendConversation, extractFunctionCalls, extractText } from "./mistralAgentClient.js";
 
 // chatId -> { conversationId, agentKey } — lets a chat's turns re-use the
@@ -46,75 +48,6 @@ Rules:
 14. Save durable facts with save_memory once (deduplicate).
 
 Economy: be concise, avoid redundant reads/lints, prefer batch ops, stop as soon as the result is good enough — don't keep re-verifying something that already checked out. A simple landing/site must finish in ≤4 tool calls total (write_files, optionally check_preview, done). Every additional tool call beyond what's strictly needed costs real minutes and real tokens, not just perceived latency.`;
-
-/** Short prompt for simple static sites — saves ~600–900 tokens per model call. */
-const SYSTEM_PROMPT_SIMPLE = `You are CodeForge — fast coding agent. Build a working static site quickly.
-
-Rules:
-1. Prefer static HTML/CSS/JS. No framework unless user asks.
-2. Use write_files ONCE with ALL files (index.html + css + js). Never one write_file per file.
-3. After write_files: STOP with a 2–4 line summary. Do NOT lint, do NOT read back, do NOT check_preview unless the user asked to verify.
-4. Code only via tools. No code in chat.
-5. Be direct. No plan for trivial 1–4 file sites.`;
-
-/**
- * Single-shot creation prompt: model writes ALL files in one text response
- * (markdown fences with path as the language tag). Server parses and materializes
- * files — zero tool round-trips. Used only for empty/greenfield projects.
- */
-const SINGLE_SHOT_SYSTEM_PROMPT = `You are CodeForge — a fast code generator. The project is empty; you are creating it from scratch in ONE response.
-
-Rules:
-1. Prefer static HTML/CSS/JS (no build/framework) unless the user explicitly asks for React/Vue/etc.
-2. Output EVERY file as a fenced code block. The fence language tag MUST be the relative file path, e.g.:
-\`\`\`index.html
-<!DOCTYPE html>
-...
-\`\`\`
-\`\`\`styles.css
-body { ... }
-\`\`\`
-\`\`\`script.js
-...
-\`\`\`
-3. Paths only — no language name before the path. Do not use \`\`\`html or \`\`\`css; use the path itself as the tag.
-4. After all file blocks, write a short (2–5 lines) summary of what you built and how to open/preview it.
-5. No tool calls, no plans, no extra commentary before the first fence. Start with the first \`\`\`path block.
-6. Clean, production-ready code. No placeholders like "TODO" or lorem unless the user asked for them.
-7. Keep the whole site self-contained (relative links, inline or linked CSS/JS in the same project).`;
-
-/**
- * Parse fenced code blocks whose language tag is a file path.
- * Accepts:
- *   ```index.html
- *   ```path/to/file.js
- *   ```html index.html   (fallback: last token that looks like a path)
- * Returns [{ path, content }, ...]
- */
-function parseCodeBlocksFromText(text) {
-  const files = [];
-  if (!text || typeof text !== "string") return files;
-  const re = /```([^\n`]+)\n([\s\S]*?)```/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    let header = m[1].trim();
-    // Strip optional language prefix: "html index.html" / "javascript src/app.js"
-    let path = header;
-    if (/\s/.test(header)) {
-      const parts = header.split(/\s+/).filter(Boolean);
-      const pathLike = parts.find((p) => /[./]/.test(p) || /\.\w{1,8}$/.test(p));
-      path = pathLike || parts[parts.length - 1];
-    }
-    path = path.replace(/^\/+/, "").replace(/\.\./g, "").trim();
-    // Reject obvious non-paths (bare language names, empty)
-    if (!path || path.length > 200 || !/[\w.-]/.test(path)) continue;
-    // Prefer something that looks like a filename
-    if (!/\.\w{1,12}$/.test(path) && !path.includes("/")) continue;
-    const content = m[2].replace(/\n$/, "");
-    files.push({ path, content });
-  }
-  return files;
-}
 
 /**
  * Runs the full agent loop for one user turn, streaming events via onEvent.
@@ -176,6 +109,44 @@ export async function runAgentLoop({
 
   const budget = createBudgetTracker(budgetLimits);
   const toolTimers = new Map(); // name -> startedAt (ms)
+
+  // --- Diagnostics: where does the wall-clock time in a turn actually go? ---
+  // Every previous round of tuning was a guess. This records real numbers
+  // so the next bottleneck can be found from evidence instead of theory.
+  // Zero effect on behavior — pure bookkeeping, printed once at the end of
+  // the turn via finalizeTurn(). Declared this early so every code path
+  // below (single-shot, Conversations API, legacy loop) can use it.
+  const perf = { turnStart: Date.now(), modelMs: 0, rateLimitWaitMs: 0, toolMs: 0, modelCalls: 0, rateLimitHits: 0, toolCalls: 0 };
+  const timeModelCall = async (fn) => {
+    const t0 = Date.now();
+    try { return await fn(); } finally { perf.modelMs += Date.now() - t0; perf.modelCalls++; }
+  };
+  const timeToolCall = async (fn) => {
+    const t0 = Date.now();
+    try { return await fn(); } finally { perf.toolMs += Date.now() - t0; perf.toolCalls++; }
+  };
+  const logPerfSummary = () => {
+    const totalMs = Date.now() - perf.turnStart;
+    const otherMs = Math.max(0, totalMs - perf.modelMs - perf.toolMs - perf.rateLimitWaitMs);
+    console.log(
+      `[perf] turn=${totalMs}ms | model=${perf.modelMs}ms (${perf.modelCalls} calls) | ` +
+      `rate_limit_wait=${perf.rateLimitWaitMs}ms (${perf.rateLimitHits} hits) | ` +
+      `tools=${perf.toolMs}ms (${perf.toolCalls} calls) | other/overhead=${otherMs}ms`
+    );
+    // Same breakdown, sent to the client so it shows up in the UI instead
+    // of only the server console — this is what the "perf" panel reads.
+    onEvent({
+      type: "perf",
+      totalMs,
+      modelMs: perf.modelMs,
+      modelCalls: perf.modelCalls,
+      rateLimitWaitMs: perf.rateLimitWaitMs,
+      rateLimitHits: perf.rateLimitHits,
+      toolMs: perf.toolMs,
+      toolCalls: perf.toolCalls,
+      otherMs
+    });
+  };
 
   // --- Step -1: load durable project memory, if any, and fold it into the system prompt ---
   const memoryEntries = await loadMemory(memoryKey);
@@ -267,15 +238,7 @@ export async function runAgentLoop({
   const isGemini = /^gemini-3\./.test(effectiveModel);
   const chatFn = isGemini ? streamGeminiChat : streamMistralChat;
 
-  // Early simple-task flag (also refined later with hasTestSetup). Used for
-  // short system prompt + minimal tools + auto-stop after write.
-  const isSimpleEconomy =
-    fsMap.size === 0 ||
-    /(простой сайт|одностраничник|лендинг|simple site|landing page|простой|landing|статич|html.?css|сделай сайт|создай сайт|make (a |me )?(site|page|landing))/i.test(
-      rawLastPrompt
-    );
-  const effectiveSystemPrompt = (isSimpleEconomy ? SYSTEM_PROMPT_SIMPLE : SYSTEM_PROMPT) + leadingNote + memoryBlock;
-  const messages = [{ role: "system", content: effectiveSystemPrompt }, ...workingHistory];
+  const messages = [{ role: "system", content: SYSTEM_PROMPT + leadingNote + memoryBlock }, ...workingHistory];
 
   // --- Vision: design-reference screenshots dropped into the chat ---
   // Turns this into a Mistral multimodal message (text + image_url parts) and
@@ -299,19 +262,15 @@ export async function runAgentLoop({
 
   let totalUsage = { prompt_tokens: 0, completion_tokens: 0 };
   let loopCount = 0;
-  // Economy: adaptive loops — trivial fix 10, simple site 14, site/app 22, big 28
-  const getAdaptiveLoops = (prompt) => {
-    if (/(фикс|поправь|исправь|мелкий|one.?line|small fix)/i.test(prompt) && prompt.length < 120) return 4;
-    if (fsMap.size === 0 || /(простой сайт|одностраничник|лендинг|landing|сделай сайт|создай сайт)/i.test(prompt)) return 4;
-    if (/(сайт|приложение|app|website|страниц)/i.test(prompt)) return 10;
-    if (/(большой|сложный|enterprise|full.?stack|многостраничный)/i.test(prompt)) return 18;
-    return 10;
-  };
-  const MAX_LOOPS = getAdaptiveLoops(rawLastPrompt);
+  // Economy: adaptive loops — see taskComplexity.js for the single shared
+  // classifier (this used to be its own drifted-apart regex copy).
+  const MAX_LOOPS = getMaxLoops(rawLastPrompt);
   const trimForEconomy = (msgs) => {
     if (msgs.length <= 16) return msgs;
     return [msgs[0], ...msgs.slice(-12)];
   };
+  // For simple tasks drop heavy tools to save tokens/round-trips
+  const isSimpleEconomy = /(простой сайт|одностраничник|лендинг|simple site|landing page|простой)/i.test(rawLastPrompt);
   // Only offer run_tests if the project actually HAS something to test —
   // package.json with a test script, or an existing *.test.*/*.spec.*
   // file. Otherwise the agent calls run_tests anyway "to verify", gets a
@@ -327,29 +286,10 @@ export async function runAgentLoop({
     }
     return false;
   })();
-  // Minimal tool set for simple static work — fewer schemas = fewer tokens
-  // on every model request (full catalog is ~7–8KB of JSON every turn).
-  const SIMPLE_TOOL_ALLOW = new Set([
-    "write_files",
-    "write_file",
-    "edit_file",
-    "read_file",
-    "read_files",
-    "list_directory_tree",
-    "list_files",
-    "check_preview",
-    "delete_file",
-    "rename_file"
-  ]);
   const baseTools = toolDefinitions.filter((t) => {
     const name = t.function.name;
     if (!hasTestSetup && name === "run_tests") return false;
-    if (isSimpleEconomy) return SIMPLE_TOOL_ALLOW.has(name);
-    if (["semantic_search", "delegate_to_subagent", "analyze_bundle", "extract_colors", "generate_tests", "todo_scan", "get_project_stats", "refactor"].includes(name)) {
-      // Drop rarely-needed tools from the default set to cut schema tokens
-      // even on medium tasks (model can still do the job without them).
-      return false;
-    }
+    if (isSimpleEconomy && ["semantic_search", "delegate_to_subagent"].includes(name)) return false;
     return true;
   });
   // Image mode: add Mistral's built-in image_generation connector (works in
@@ -358,9 +298,6 @@ export async function runAgentLoop({
   // the project (e.g. as an asset referenced by the site it's building).
   const builtinTools = toolMode === "image" ? [IMAGE_GENERATION_TOOL] : [];
   const activeTools = [...baseTools, ...extraTools];
-  // Track whether a successful write happened this turn — used to auto-stop
-  // on simple tasks instead of letting the model burn another loop on lint/read.
-  let wroteFilesThisTurn = false;
   let repeatedTurnSignature = "";
   let repeatedTurnCount = 0;
   // Keep a bounded loop so an agent cannot spend minutes repeating the same failed tool call.
@@ -404,9 +341,106 @@ export async function runAgentLoop({
 
     onEvent({ type: "usage", usage: totalUsage });
     onEvent({ type: "files", files: fsToArray(fsMap) });
+    if (typeof logPerfSummary === "function") logPerfSummary();
     // Strip system message before persisting - don't store system prompt in DB
     const messagesToPersist = messages.filter((m) => m.role !== "system");
     return { messages: messagesToPersist, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
+  }
+
+  // --- Single-shot path: no tools at all, whole task in one model call ---
+  // See singleShotGenerator.js for the rationale. Originally only covered
+  // brand-new/empty projects; now also covers EDITS to a small/medium
+  // existing project, which is the far more common case and where the
+  // tool loop (read_file -> write_file -> check_preview, one full model
+  // round trip each) was actually costing the minutes. For an edit, every
+  // current file is inlined into the prompt up front so the model never
+  // needs to call read_file, and it answers with only the files that
+  // changed — no write_file/edit_file tool calls either.
+  const canUseSingleShot =
+    mode === "single" &&
+    toolMode === "code" &&
+    !requireApproval &&
+    !requirePlanApproval &&
+    !(images && images.length > 0) &&
+    isProjectSmallEnoughForSingleShot(fsMap);
+  const isSingleShotEdit = canUseSingleShot && fsMap.size > 0;
+
+  async function runSingleShotPath() {
+    onEvent({ type: "status", text: isSingleShotEdit ? "Вношу правки одним запросом…" : "Генерирую проект одним запросом…" });
+    const existingFiles = isSingleShotEdit ? [...fsMap.entries()] : null;
+    const singleShotMessages = [
+      { role: "system", content: buildSingleShotSystemPrompt(SYSTEM_PROMPT + leadingNote + memoryBlock, { existingFiles }) },
+      ...workingHistory
+    ];
+
+    let text = "";
+    let result;
+    try {
+      result = await timeModelCall(() => chatFn({
+        messages: singleShotMessages,
+        tools: null,
+        model: effectiveModel,
+        signal,
+        onChunk: (chunk) => {
+          if (chunk.type === "content") {
+            text += chunk.text;
+            onEvent({ type: "reasoning", text: chunk.text, delta: true });
+          }
+        }
+      }));
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      // Model call itself failed — no point retrying single-shot, let the
+      // normal loop's own retry/backoff handle it.
+      onEvent({ type: "status", text: "Single-shot генерация не удалась, переключаюсь на обычный режим…" });
+      return null;
+    }
+
+    const fullText = result?.content || text;
+    const { files, deletions, rejected, summary } = parseSingleShotResponse(fullText);
+
+    // Nothing parsed => model ignored the format (or this genuinely needed
+    // tools, e.g. it tried to web_fetch something). Bail to the tool loop
+    // rather than showing the user a raw, unparsed dump.
+    if (files.length === 0 && deletions.length === 0) {
+      onEvent({ type: "status", text: "Не удалось разобрать одношаговый ответ, переключаюсь на обычный режим…" });
+      return null;
+    }
+
+    for (const f of files) {
+      fsMap.set(f.path, f.content);
+      changedPaths.push(f.path);
+      onEvent({ type: "file", path: f.path, content: f.content });
+    }
+    for (const p of deletions) {
+      if (fsMap.has(p)) {
+        fsMap.delete(p);
+        changedPaths.push(p);
+        onEvent({ type: "file", path: p, content: null, deleted: true });
+      }
+    }
+    if (rejected.length) {
+      onEvent({ type: "status", text: `Пропущены небезопасные пути: ${rejected.join(", ")}` });
+    }
+
+    if (result?.usage) {
+      totalUsage.prompt_tokens += result.usage.prompt_tokens || 0;
+      totalUsage.completion_tokens += result.usage.completion_tokens || 0;
+      budget.addUsage(result.usage);
+    }
+
+    const changedCount = files.length + deletions.length;
+    const finalText = summary || (isSingleShotEdit ? `Готово — изменено файлов: ${changedCount}.` : `Готово — создано файлов: ${files.length}.`);
+    messages.push({ role: "assistant", content: finalText });
+    onEvent({ type: "final", text: finalText });
+    return await finalizeTurn();
+  }
+
+  if (canUseSingleShot) {
+    const singleShotResult = await runSingleShotPath();
+    if (singleShotResult) return singleShotResult;
+    // else: fall through to the regular tool-based loop below (Conversations
+    // API path or legacy loop, whichever applies)
   }
 
   // helper for rate-limit detection and backoff
@@ -416,97 +450,6 @@ export async function runAgentLoop({
   };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  // --- Single-shot greenfield path ---
-  // Empty project + create-style request → ONE model call, no tools.
-  // Model writes all files as markdown fences; we parse and materialize them.
-  // This is the real lever that matches Le Chat-style latency (1 round-trip).
-  // Edits of existing projects still use the full tool loop below.
-  const isEmptyProject = fsMap.size === 0;
-  const isCreationPrompt =
-    /(сделай|создай|сгенерируй|напиши|build|create|make|generate|с нуля|from scratch|новый сайт|new (site|app|page))/i.test(rawLastPrompt) ||
-    (isEmptyProject && /(сайт|лендинг|landing|website|app|приложение|страниц|page)/i.test(rawLastPrompt));
-  const useSingleShot =
-    isEmptyProject &&
-    isCreationPrompt &&
-    toolMode === "code" &&
-    mode === "single" &&
-    !requireApproval &&
-    !requirePlanApproval &&
-    !(images && images.length > 0);
-
-  if (useSingleShot) {
-    onEvent({ type: "status", text: "Генерация с нуля (single-shot, без тулов)…" });
-    const singleMessages = [
-      { role: "system", content: SINGLE_SHOT_SYSTEM_PROMPT + memoryBlock },
-      ...workingHistory
-    ];
-    let currentText = "";
-    let result = null;
-    for (let rlAttempt = 0; rlAttempt < 6; rlAttempt++) {
-      try {
-        result = await chatFn({
-          messages: singleMessages,
-          tools: null,
-          builtinTools: [],
-          reasoningEffort,
-          model: effectiveModel,
-          signal,
-          onChunk: (chunk) => {
-            if (chunk.type === "content") {
-              currentText += chunk.text;
-              onEvent({ type: "reasoning", text: chunk.text, delta: true });
-            }
-          }
-        });
-        break;
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        if (isRateLimit(err) && rlAttempt < 5) {
-          const delay = Math.min(2000 * Math.pow(1.8, rlAttempt) + Math.floor(Math.random() * 800), 25000);
-          onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay, message: err.message || "Rate limited, retrying…" });
-          await sleep(delay);
-          continue;
-        }
-        emitError(onEvent, err.message || String(err), err);
-        return await finalizeTurn();
-      }
-    }
-    if (!result) {
-      onEvent({ type: "error", message: "Не удалось получить ответ модели (rate limit). Попробуйте снова." });
-      return await finalizeTurn();
-    }
-    if (result.usage) {
-      totalUsage.prompt_tokens += result.usage.prompt_tokens || 0;
-      totalUsage.completion_tokens += result.usage.completion_tokens || 0;
-      budget.addUsage(result.usage);
-    }
-    const fullText = (result.content && result.content.length > 0 ? result.content : currentText) || "";
-    const parsed = parseCodeBlocksFromText(fullText);
-    if (parsed.length === 0) {
-      // Fallback: model ignored the format — treat whole answer as final text
-      const safe = fullText.trim() || "(no response generated)";
-      messages.push({ role: "assistant", content: safe });
-      onEvent({ type: "final", text: safe });
-      return await finalizeTurn();
-    }
-    for (const { path, content } of parsed) {
-      fsMap.set(path, content);
-      changedPaths.push(path);
-      onEvent({ type: "file", path, content });
-      onEvent({ type: "tool_call", name: "write_file", args: { path, content: content.slice(0, 80) + (content.length > 80 ? "…" : "") }, ts: Date.now() });
-      onEvent({ type: "tool_result", name: "write_file", ok: true });
-    }
-    // Summary = any prose outside the fences, or a short default listing files
-    const withoutFences = fullText.replace(/```[\s\S]*?```/g, "").trim();
-    const summary =
-      withoutFences ||
-      `Создано ${parsed.length} файл(ов): ${parsed.map((f) => f.path).join(", ")}.`;
-    messages.push({ role: "assistant", content: summary });
-    onEvent({ type: "final", text: summary });
-    return await finalizeTurn();
-  }
-
-  // --- Primary path: Mistral Agents + Conversations API ---
   // This is now the real execution path for the normal "code" tool loop on
   // Mistral models (mode "single", no requireApproval/planApproval, no
   // attached images — those keep using the vision/approval-aware paths
@@ -525,7 +468,7 @@ export async function runAgentLoop({
   }
 
   async function runConversationsPath() {
-    const instructions = effectiveSystemPrompt;
+    const instructions = SYSTEM_PROMPT + leadingNote + memoryBlock;
     const agentTools = activeTools; // same {type:"function", function:{...}} schemas as before
 
     let agentId;
@@ -556,11 +499,7 @@ export async function runAgentLoop({
     // max_tokens at all (only a flat 8000 baked into the agent as a
     // fallback), meaning a "simple site" could generate far more than
     // needed. Real tokens/time, not perceived latency.
-    let adaptiveMax = 8000;
-    if (/(фикс|поправь|исправь|мелкий|one.?line|small fix)/i.test(rawLastPrompt) && rawLastPrompt.length < 120) adaptiveMax = 2000;
-    else if (isSimpleEconomy) adaptiveMax = 4500;
-    else if (/(большой|сложный|enterprise|многостраничный)/i.test(rawLastPrompt)) adaptiveMax = 12000;
-    const completionArgs = { max_tokens: adaptiveMax };
+    const completionArgs = { max_tokens: getMaxTokens(rawLastPrompt) };
 
     let outputs;
     let convUsage = null;
@@ -627,20 +566,18 @@ export async function runAgentLoop({
             execResult = { error: err.message };
           }
         } else {
-          execResult = await executeTool(tName, args, fsMap);
+          execResult = await timeToolCall(() => executeTool(tName, args, fsMap));
         }
 
         if (execResult.fileChanged) {
           changedPaths.push(execResult.fileChanged);
           onEvent({ type: "file", path: execResult.fileChanged, content: fsMap.get(execResult.fileChanged) });
-          if (tName === "write_file" || tName === "edit_file") wroteFilesThisTurn = true;
         }
         if (execResult.filesChanged && execResult.filesChanged.length) {
           for (const p of execResult.filesChanged) {
             changedPaths.push(p);
             onEvent({ type: "file", path: p, content: fsMap.get(p) });
           }
-          if (tName === "write_files") wroteFilesThisTurn = true;
         }
         if (tName === "run_tests") {
           testRuns.push(execResult);
@@ -662,19 +599,6 @@ export async function runAgentLoop({
           onEvent({ type: budgetPause ? "status" : "error", message: `Budget limit (${budgetEvent.kind}) reached — stopping.` });
           return await finalizeTurn();
         }
-      }
-
-      // Simple economy: after a successful write, stop — no extra model call
-      // for lint/read/check_preview. Saves a full round-trip + tokens.
-      if (isSimpleEconomy && wroteFilesThisTurn) {
-        const summary =
-          text && text.trim()
-            ? text.trim()
-            : `Готово: ${[...new Set(changedPaths)].join(", ") || "файлы записаны"}.`;
-        messages.push({ role: "assistant", content: summary });
-        onEvent({ type: "final", text: summary });
-        onEvent({ type: "status", text: "Simple mode: останов после write (без лишних проверок)." });
-        return await finalizeTurn();
       }
 
       try {
@@ -704,7 +628,7 @@ export async function runAgentLoop({
     const apiMessages = trimForEconomy(messages);
     for (let rlAttempt = 0; rlAttempt < 6; rlAttempt++) {
       try {
-        result = await chatFn({
+        result = await timeModelCall(() => chatFn({
           messages: apiMessages,
           tools: activeTools,
           builtinTools,
@@ -717,13 +641,15 @@ export async function runAgentLoop({
               onEvent({ type: "reasoning", text: chunk.text });
             }
           }
-        });
+        }));
         break;
       } catch (err) {
         if (signal?.aborted) throw err;
         if (isRateLimit(err) && rlAttempt < 5) {
           const delay = 2000 * Math.pow(1.8, rlAttempt) + Math.floor(Math.random() * 800);
           const capped = Math.min(delay, 25000);
+          perf.rateLimitWaitMs += capped;
+          perf.rateLimitHits++;
           onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay: capped, message: err.message || "Rate limited, retrying…" });
           // Persist intermediate progress so a later hard-fail does not lose work
           onEvent({ type: "files", files: fsToArray(fsMap) });
@@ -906,15 +832,9 @@ export async function runAgentLoop({
         onEvent({ type: "diff_approved", path, kind: call.function.name });
       }
 
-      const execResult = await executeTool(call.function.name, args, fsMap);
-      if (execResult.fileChanged) {
-        changedPaths.push(execResult.fileChanged);
-        if (call.function.name === "write_file" || call.function.name === "edit_file") wroteFilesThisTurn = true;
-      }
-      if (execResult.filesChanged) {
-        changedPaths.push(...execResult.filesChanged);
-        if (call.function.name === "write_files") wroteFilesThisTurn = true;
-      }
+      const execResult = await timeToolCall(() => executeTool(call.function.name, args, fsMap));
+      if (execResult.fileChanged) changedPaths.push(execResult.fileChanged);
+      if (execResult.filesChanged) changedPaths.push(...execResult.filesChanged);
       if (execResult.testRun) {
         testRuns.push(execResult.testRun);
         lastTestRunFailed = !execResult.testRun.ok;
@@ -1012,16 +932,6 @@ export async function runAgentLoop({
       messages.push(...readResults);
     }
     for (const item of writeCalls) await executePrepared(preparedCalls.find((p) => p.call === item.call));
-
-    // Simple economy: stop right after a successful write — no second model
-    // round-trip for lint/read/verify.
-    if (isSimpleEconomy && wroteFilesThisTurn) {
-      const summary = `Готово: ${[...new Set(changedPaths)].join(", ") || "файлы записаны"}.`;
-      messages.push({ role: "assistant", content: summary });
-      onEvent({ type: "final", text: summary });
-      onEvent({ type: "status", text: "Simple mode: останов после write (без лишних проверок)." });
-      return await finalizeTurn();
-    }
   }
 
   onEvent({ type: "final", text: "Reached maximum tool-call iterations for this turn. Please continue in a follow-up message." });
