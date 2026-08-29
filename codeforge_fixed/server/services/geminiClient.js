@@ -97,7 +97,7 @@ function toGeminiContents(messages) {
  * Streams a chat completion from Gemini, normalized to the same shape as streamMistralChat:
  * { content, toolCalls, finishReason, usage }
  */
-export async function streamGeminiChat({ messages, tools, model, onChunk, signal, thinkingLevel = DEFAULT_THINKING_LEVEL }) {
+export async function streamGeminiChat({ messages, tools, model, onChunk, signal, thinkingLevel = DEFAULT_THINKING_LEVEL, maxTokens }) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY is not configured on the server.");
@@ -109,7 +109,7 @@ export async function streamGeminiChat({ messages, tools, model, onChunk, signal
   const body = {
     contents,
     generationConfig: {
-      maxOutputTokens: 8000,
+      maxOutputTokens: maxTokens || 8000,
       ...(isThinkingModel ? { thinkingConfig: { thinkingLevel: ["low", "medium", "high"].includes(thinkingLevel) ? thinkingLevel : DEFAULT_THINKING_LEVEL } } : {})
     }
   };

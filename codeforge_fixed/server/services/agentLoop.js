@@ -373,6 +373,14 @@ export async function runAgentLoop({
       ...workingHistory
     ];
 
+    // Single-shot writes the WHOLE deliverable in one completion, so it
+    // needs a much bigger cap than a single step of the old tool loop
+    // (that classifier-based budget is what silently truncated single-shot
+    // responses before, causing a fallback to the slow loop — see
+    // mistralClient.js). Creation needs more headroom than an edit, since
+    // an edit only re-outputs the files that actually changed.
+    const singleShotMaxTokens = isSingleShotEdit ? 10000 : 14000;
+
     let text = "";
     let result;
     try {
@@ -380,6 +388,7 @@ export async function runAgentLoop({
         messages: singleShotMessages,
         tools: null,
         model: effectiveModel,
+        maxTokens: singleShotMaxTokens,
         signal,
         onChunk: (chunk) => {
           if (chunk.type === "content") {
@@ -403,7 +412,13 @@ export async function runAgentLoop({
     // tools, e.g. it tried to web_fetch something). Bail to the tool loop
     // rather than showing the user a raw, unparsed dump.
     if (files.length === 0 && deletions.length === 0) {
-      onEvent({ type: "status", text: "Не удалось разобрать одношаговый ответ, переключаюсь на обычный режим…" });
+      const truncated = result?.finishReason === "length";
+      onEvent({
+        type: "status",
+        text: truncated
+          ? `Ответ обрезан по лимиту токенов (${singleShotMaxTokens}), не удалось разобрать файлы — переключаюсь на обычный режим…`
+          : "Не удалось разобрать одношаговый ответ, переключаюсь на обычный режим…"
+      });
       return null;
     }
 
@@ -421,6 +436,9 @@ export async function runAgentLoop({
     }
     if (rejected.length) {
       onEvent({ type: "status", text: `Пропущены небезопасные пути: ${rejected.join(", ")}` });
+    }
+    if (result?.finishReason === "length") {
+      onEvent({ type: "status", text: "⚠ Ответ модели был обрезан по лимиту токенов — последний файл мог не войти. Если чего-то не хватает, напишите «продолжи»." });
     }
 
     if (result?.usage) {

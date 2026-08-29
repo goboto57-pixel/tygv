@@ -76,7 +76,7 @@ export const IMAGE_GENERATION_TOOL = { type: "image_generation" };
  * Emits parsed SSE chunks via onChunk callback.
  * Supports tool calling.
  */
-export async function streamMistralChat({ messages, tools, model, onChunk, signal, reasoningEffort, builtinTools }) {
+export async function streamMistralChat({ messages, tools, model, onChunk, signal, reasoningEffort, builtinTools, maxTokens }) {
   const apiKey = normalizeApiKey(process.env.MISTRAL_API_KEY);
   // По умолчанию используем ту же модель, что и в консоли Mistral (Mistral
   // Medium), а не Codestral — Codestral заточен под автодополнение кода и
@@ -95,9 +95,18 @@ export async function streamMistralChat({ messages, tools, model, onChunk, signa
   // tier, not plain "сайт"/"app"/"website"), so an ordinary "make me a
   // site" request got a cheap loop budget but the expensive 8000-token
   // default cap — the actual cause of "simple" turns taking minutes.
+  //
+  // `maxTokens`, if passed explicitly, always wins over the classifier.
+  // This matters for single-shot generation (agentLoop.js): that path asks
+  // for the ENTIRE project/edit in ONE completion, so the per-turn budget
+  // from the classifier (tuned for a single step of the OLD multi-turn tool
+  // loop, e.g. 4000 for "simple") is far too small — it truncated the
+  // response mid-file, single-shot couldn't parse it, and silently fell
+  // back to the slow tool loop, which then ran until the hard time budget
+  // killed it. That was the actual cause of "10+ minutes for a simple site".
   const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content || "";
   const lastStr = typeof lastUser === "string" ? lastUser : Array.isArray(lastUser) ? lastUser.map((p) => p.text || "").join(" ") : "";
-  const adaptiveMax = getMaxTokens(lastStr);
+  const adaptiveMax = maxTokens || getMaxTokens(lastStr);
   const body = {
     model: resolvedModel,
     messages,
