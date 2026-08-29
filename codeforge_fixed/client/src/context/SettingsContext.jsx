@@ -5,6 +5,7 @@ const SettingsContext = createContext(null);
 export const MODELS = [
   // --- Mistral: основные ---
   { id: "mistral-medium-latest", label: "Mistral Medium", provider: "Mistral", group: "Mistral", desc: "модель по умолчанию в консоли Mistral — баланс скорости/качества, хороша для сайтов и приложений", vision: true },
+  { id: "zai-glm-5-2", label: "Z.ai GLM 5.2", provider: "Mistral", group: "Mistral · сторонние", desc: "сторонняя open-weight модель Z.ai, размещённая в Mistral для длинного контекста, coding и агентных задач" },
   { id: "mistral-large-latest", label: "Mistral Large", provider: "Mistral", group: "Mistral", desc: "флагман для сложных рассуждений и архитектуры, медленнее Medium", vision: true },
   { id: "mistral-small-latest", label: "Mistral Small", provider: "Mistral", group: "Mistral", desc: "Small 4: reasoning + vision + агентный код в одной модели, поддерживает эффорт", vision: true, reasoning: true },
   // --- Mistral: код ---

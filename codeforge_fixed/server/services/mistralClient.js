@@ -41,6 +41,7 @@ function explain401(errText) {
 // vision: true -> модель умеет читать изображения (image_url в контенте).
 export const MODEL_CATALOG = [
   { id: "mistral-medium-latest", label: "Mistral Medium", group: "Основные", vision: true, reasoning: false, desc: "Баланс скорости, качества и цены — модель по умолчанию в консоли Mistral. Хороший выбор для большинства сайтов и приложений." },
+  { id: "zai-glm-5-2", label: "Z.ai GLM 5.2", group: "Сторонние модели", vision: false, reasoning: false, desc: "Сторонняя open-weight модель Z.ai, размещённая в Mistral для длинного контекста, coding и агентных задач." },
   { id: "mistral-large-latest", label: "Mistral Large", group: "Основные", vision: true, reasoning: false, desc: "Флагман для сложных рассуждений, архитектуры и многошаговых задач. Медленнее и дороже Medium." },
   { id: "mistral-small-latest", label: "Mistral Small", group: "Основные", vision: true, reasoning: true, desc: "Компактная модель (Small 4): встроены reasoning, vision и агентный код в одной модели. Быстрая и дешёвая, поддерживает reasoning_effort." },
   { id: "codestral-latest", label: "Codestral", group: "Код", vision: false, reasoning: false, desc: "Специализация на автодополнении и генерации кода. Слабее в UI/дизайне и следовании сложным инструкциям, чем Medium/Large." },
