@@ -347,6 +347,14 @@ export async function runAgentLoop({
     return { messages: messagesToPersist, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
   }
 
+  // helper for rate-limit detection and backoff (used by both single-shot
+  // and the legacy loop below)
+  const isRateLimit = (err) => {
+    const msg = String(err?.message || "").toLowerCase();
+    return err?.status === 429 || msg.includes("429") || msg.includes("rate limit") || msg.includes("too many requests");
+  };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
   // --- Single-shot path: no tools at all, whole task in one model call ---
   // See singleShotGenerator.js for the rationale. Originally only covered
   // brand-new/empty projects; now also covers EDITS to a small/medium
@@ -364,6 +372,21 @@ export async function runAgentLoop({
     !(images && images.length > 0) &&
     isProjectSmallEnoughForSingleShot(fsMap);
   const isSingleShotEdit = canUseSingleShot && fsMap.size > 0;
+
+  // Diagnostics: previously, when single-shot was skipped or fell back, the
+  // only visible symptom was "it's slow" — no way to tell whether it never
+  // even attempted single-shot, or attempted and failed to parse. Surface
+  // the reason explicitly so this doesn't have to be guessed again.
+  if (!canUseSingleShot) {
+    const reasons = [];
+    if (mode !== "single") reasons.push(`mode="${mode}" (нужен "single")`);
+    if (toolMode !== "code") reasons.push(`toolMode="${toolMode}" (нужен "code")`);
+    if (requireApproval) reasons.push("requireApproval=true");
+    if (requirePlanApproval) reasons.push("requirePlanApproval=true");
+    if (images && images.length > 0) reasons.push("есть прикреплённые изображения");
+    if (!isProjectSmallEnoughForSingleShot(fsMap)) reasons.push(`проект слишком большой для single-shot (${fsMap.size} файлов)`);
+    onEvent({ type: "status", text: `Single-shot пропущен: ${reasons.join(", ")}. Иду обычным циклом с тулами.` });
+  }
 
   async function runSingleShotPath() {
     onEvent({ type: "status", text: isSingleShotEdit ? "Вношу правки одним запросом…" : "Генерирую проект одним запросом…" });
@@ -383,26 +406,45 @@ export async function runAgentLoop({
 
     let text = "";
     let result;
-    try {
-      result = await timeModelCall(() => chatFn({
-        messages: singleShotMessages,
-        tools: null,
-        model: effectiveModel,
-        maxTokens: singleShotMaxTokens,
-        signal,
-        onChunk: (chunk) => {
-          if (chunk.type === "content") {
-            text += chunk.text;
-            onEvent({ type: "reasoning", text: chunk.text, delta: true });
+    // Retry on rate-limit here too — previously a single 429 made
+    // single-shot bail out instantly and fall back to the legacy tool loop,
+    // which then did its OWN much longer retry dance (up to 6 attempts per
+    // loop iteration, multiple iterations) until it hit the hard time
+    // budget. Retrying once here, at the cheap single-call stage, is far
+    // less costly than falling through to that.
+    for (let rlAttempt = 0; rlAttempt < 4; rlAttempt++) {
+      text = "";
+      try {
+        result = await timeModelCall(() => chatFn({
+          messages: singleShotMessages,
+          tools: null,
+          model: effectiveModel,
+          maxTokens: singleShotMaxTokens,
+          signal,
+          onChunk: (chunk) => {
+            if (chunk.type === "content") {
+              text += chunk.text;
+              onEvent({ type: "reasoning", text: chunk.text, delta: true });
+            }
           }
+        }));
+        break;
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        if (isRateLimit(err) && rlAttempt < 3) {
+          const delay = Math.min(2000 * Math.pow(1.8, rlAttempt), 15000);
+          perf.rateLimitWaitMs += delay;
+          perf.rateLimitHits++;
+          onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay, message: err.message || "Rate limited, retrying…" });
+          await sleep(delay);
+          continue;
         }
-      }));
-    } catch (err) {
-      if (signal?.aborted) throw err;
-      // Model call itself failed — no point retrying single-shot, let the
-      // normal loop's own retry/backoff handle it.
-      onEvent({ type: "status", text: "Single-shot генерация не удалась, переключаюсь на обычный режим…" });
-      return null;
+        // Model call itself failed (non-rate-limit, or retries exhausted) —
+        // no point retrying single-shot further, let the normal loop's own
+        // retry/backoff handle it.
+        onEvent({ type: "status", text: "Single-shot генерация не удалась, переключаюсь на обычный режим…" });
+        return null;
+      }
     }
 
     const fullText = result?.content || text;
@@ -460,13 +502,6 @@ export async function runAgentLoop({
     // else: fall through to the regular tool-based loop below (Conversations
     // API path or legacy loop, whichever applies)
   }
-
-  // helper for rate-limit detection and backoff
-  const isRateLimit = (err) => {
-    const msg = String(err?.message || "").toLowerCase();
-    return err?.status === 429 || msg.includes("429") || msg.includes("rate limit") || msg.includes("too many requests");
-  };
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   // This is now the real execution path for the normal "code" tool loop on
   // Mistral models (mode "single", no requireApproval/planApproval, no
