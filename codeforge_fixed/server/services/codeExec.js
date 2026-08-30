@@ -115,29 +115,40 @@ function tokenize(command) {
 }
 
 async function materializeFs(fsMap, dir) {
-  for (const [relPath, content] of fsMap.entries()) {
-    const full = path.join(dir, relPath);
-    if (!full.startsWith(dir)) continue; // guard against path traversal (e.g. "../../etc/passwd")
-    await mkdir(path.dirname(full), { recursive: true });
-    await writeFile(full, content, "utf8");
-  }
+  // Was a sequential for-await loop — one mkdir + one writeFile per file,
+  // fully serialized. For a real project (dozens of files) that adds up to
+  // real, measurable wall-clock time on every single run_command/run_tests
+  // call, on top of the actual command itself — this is disk I/O with no
+  // reason to be one-at-a-time. Parallelized; each file's mkdir+write is
+  // independent of every other file's.
+  await Promise.all(
+    Array.from(fsMap.entries()).map(async ([relPath, content]) => {
+      const full = path.join(dir, relPath);
+      if (!full.startsWith(dir)) return; // guard against path traversal (e.g. "../../etc/passwd")
+      await mkdir(path.dirname(full), { recursive: true });
+      await writeFile(full, content, "utf8");
+    })
+  );
 }
 
 async function readBackFs(dir, fsMap) {
   const IGNORE_DIRS = new Set(["node_modules", ".git", ".venv", "__pycache__", "dist", "build"]);
   const changed = [];
 
+  // Same reasoning as materializeFs above: per-entry work (stat+read, or
+  // recursing into a subdirectory) is independent, so there's no reason to
+  // await it one file at a time — parallelized within each directory level.
   async function walk(sub) {
     const entries = await readdir(path.join(dir, sub), { withFileTypes: true });
-    for (const entry of entries) {
+    await Promise.all(entries.map(async (entry) => {
       const relPath = sub ? `${sub}/${entry.name}` : entry.name;
       if (entry.isDirectory()) {
-        if (IGNORE_DIRS.has(entry.name)) continue;
+        if (IGNORE_DIRS.has(entry.name)) return;
         await walk(relPath);
       } else if (entry.isFile()) {
         const full = path.join(dir, relPath);
         const st = await stat(full);
-        if (st.size > 1024 * 1024) continue; // skip anything >1MB (binaries, lockfile bloat)
+        if (st.size > 1024 * 1024) return; // skip anything >1MB (binaries, lockfile bloat)
         try {
           const content = await readFile(full, "utf8");
           if (fsMap.get(relPath) !== content) {
@@ -148,7 +159,7 @@ async function readBackFs(dir, fsMap) {
           // not valid utf8 (binary output) — skip, don't crash the run
         }
       }
-    }
+    }));
   }
 
   await walk("");

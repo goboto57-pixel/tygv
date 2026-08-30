@@ -99,3 +99,23 @@ export function getMaxLoops(prompt) {
 export function getMaxTokens(prompt) {
   return TOKEN_BUDGET[classifyTask(prompt)];
 }
+
+// Auto model routing: only used when the caller passes model === "auto" (or
+// no model at all) — never overrides an explicit user choice, so this is
+// purely additive. Previously every task ran on whatever single model was
+// selected in the UI regardless of size: a one-line tweak paid full
+// Medium/Large latency+cost, while a real backend/auth task got the same
+// budget as a landing page and often just ran out of loops. Cheap/fast
+// models for trivial/fix work, the strongest model reserved for tasks that
+// actually need multi-step reasoning.
+const MODEL_ROUTE = {
+  trivial: "ministral-8b-latest",
+  fix: "ministral-14b-latest",
+  simple: "mistral-medium-latest",
+  general: "mistral-medium-latest",
+  big: "mistral-large-latest"
+};
+
+export function autoRouteModel(prompt) {
+  return MODEL_ROUTE[classifyTask(prompt)];
+}

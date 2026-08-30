@@ -3,7 +3,7 @@ import archiver from "archiver";
 import { v4 as uuid } from "uuid";
 import { saveJson, loadJson, listJson, deleteJson } from "../services/cloudinaryService.js";
 import { gitLog, gitDiff, gitShow } from "../services/gitService.js";
-import { deployToNetlify, getDeployStatus, deleteNetlifySite } from "../services/deployService.js";
+import { deployToVercel, getDeployStatus, deleteVercelProject } from "../services/deployService.js";
 
 const router = express.Router();
 import { withChatWriteLock } from "../services/chatWriteLock.js";
@@ -301,11 +301,13 @@ router.post("/export-zip", async (req, res) => {
   }
 });
 
-// --- Deploy to hosting (Netlify) ---
+// --- Deploy to hosting (Vercel) ---
 // The user never provides credentials — deployment happens under our own
-// Netlify account (NETLIFY_TOKEN in env). Each chat is mapped to at most one
-// Netlify site, persisted alongside the chat record, so re-deploying the
-// same chat updates the same URL instead of minting a new one every time.
+// Vercel account (VERCEL_TOKEN in env, plus VERCEL_TEAM_ID if that token is
+// team-scoped — see deployService.js). Each chat is mapped to at most one
+// Vercel project, persisted alongside the chat record, so re-deploying the
+// same chat updates the same project/URL instead of minting a new one every
+// time.
 
 router.post("/deploy", async (req, res) => {
   try {
@@ -328,7 +330,7 @@ router.post("/deploy", async (req, res) => {
     let existing = null;
     if (chatId) existing = await loadJson(chatId, "chat");
 
-    const result = await deployToNetlify({
+    const result = await deployToVercel({
       files: safeFiles,
       existingSiteId: existing?.deploy?.siteId,
       siteNameHint: projectName || existing?.title || chatId
@@ -339,7 +341,7 @@ router.post("/deploy", async (req, res) => {
         const current = (await loadJson(chatId, "chat")) || { id: chatId, messages: [] };
         // Keep a bounded history of past publishes for this chat (newest
         // first) so the UI can offer "revert to a previous published
-        // version" without needing a separate Netlify API round-trip.
+        // version" without needing a separate Vercel API round-trip.
         const prevHistory = Array.isArray(current.deployHistory) ? current.deployHistory : [];
         const entry = { siteId: result.siteId, url: result.url, deployId: result.deployId, deployedAt: new Date().toISOString(), fileCount: safeFiles.length };
         const deployHistory = [entry, ...prevHistory].slice(0, 20);
@@ -368,7 +370,7 @@ router.post("/deploy", async (req, res) => {
 // Poll a specific deploy's processing state ("building"/"processing" ->
 // "ready"/"error"). The client uses this right after POST /deploy to show a
 // "публикуется…" state instead of assuming the site is live immediately —
-// Netlify accepts the zip synchronously but processes it asynchronously.
+// Vercel accepts the deploy synchronously but processes (builds) it asynchronously.
 router.get("/deploy/:deployId/status", async (req, res) => {
   try {
     const status = await getDeployStatus(req.params.deployId);
@@ -389,7 +391,7 @@ router.get("/deploy/:chatId/history", async (req, res) => {
   }
 });
 
-// Takes a chat's published site down entirely (deletes it on Netlify).
+// Takes a chat's published site down entirely (deletes the project on Vercel).
 // Clears the chat's `deploy` pointer so the next publish creates a fresh
 // site rather than trying to redeploy to something that no longer exists.
 router.delete("/deploy/:chatId", async (req, res) => {
@@ -397,7 +399,7 @@ router.delete("/deploy/:chatId", async (req, res) => {
     const existing = await loadJson(req.params.chatId, "chat");
     const siteId = existing?.deploy?.siteId;
     if (!siteId) return res.status(404).json({ error: "У этого чата нет опубликованного сайта" });
-    await deleteNetlifySite(siteId);
+    await deleteVercelProject(siteId);
     await withChatWriteLock(req.params.chatId, async () => {
       const current = (await loadJson(req.params.chatId, "chat")) || { id: req.params.chatId, messages: [] };
       const { deploy, ...rest } = current;

@@ -107,19 +107,43 @@ export async function loadJson(id, kind = "chat") {
   const folder =
     kind === "project" ? FOLDER_PROJECTS : kind === "snapshot" ? FOLDER_SNAPSHOTS : kind === "memory" ? FOLDER_MEMORY : FOLDER_CHATS;
   const publicId = `${folder}/${id}`;
-  const url = cloudinary.url(publicId, { resource_type: "raw", secure: true });
+  // sign_url: true — since ~2023 Cloudinary blocks UNSIGNED public delivery
+  // of "raw" resources by default on new accounts (Settings -> Security ->
+  // "Restricted media types"), returning a 401 for the exact plain
+  // `cloudinary.url()` this used to build. That 401 was silently caught
+  // below and turned into `return null`, which every caller reads as "this
+  // chat doesn't exist" — this IS the actual bug behind "открываю старый
+  // чат — а там пусто", not anything about how/when chats get saved. The
+  // save (`saveJson`, via `cloudinary.uploader.upload`) goes through
+  // Cloudinary's authenticated upload API and was never affected; only
+  // reading it back via a public URL was. `sign_url: true` appends an
+  // API-secret-derived signature Cloudinary accepts regardless of that
+  // account-level delivery restriction — this is Cloudinary's own
+  // documented fix for this exact restriction.
+  const url = cloudinary.url(publicId, { resource_type: "raw", secure: true, sign_url: true });
   try {
     const res = await fetch(url);
-    if (!res.ok) return null;
+    if (!res.ok) {
+      // Don't let a real storage/auth problem (401/403/5xx) look identical
+      // to "this id genuinely doesn't exist" (404) — that distinction is
+      // exactly what made this bug invisible before. A 404 legitimately
+      // means null; anything else is worth a server-side log line.
+      if (res.status !== 404) {
+        console.warn(`[cloudinary] loadJson(${kind}:${id}) failed: HTTP ${res.status} ${res.statusText}`);
+      }
+      return null;
+    }
     const text = await res.text();
     try {
       const data = JSON.parse(text);
       setCache(cacheKey, data);
       return data;
     } catch {
+      console.warn(`[cloudinary] loadJson(${kind}:${id}) returned non-JSON body`);
       return null;
     }
-  } catch {
+  } catch (err) {
+    console.warn(`[cloudinary] loadJson(${kind}:${id}) network error: ${err.message}`);
     return null;
   }
 }

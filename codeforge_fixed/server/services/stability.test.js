@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { withChatWriteLock } from "./chatWriteLock.js";
 import { splitToolCalls } from "./toolExecution.js";
-import { classifyTask, getMaxLoops, getMaxTokens } from "./taskComplexity.js";
+import { classifyTask, getMaxLoops, getMaxTokens, autoRouteModel } from "./taskComplexity.js";
+import { renderMemoryForPrompt } from "./memoryService.js";
 
 test("chat write lock serializes writes for one chat", async () => {
   const events = [];
@@ -62,4 +63,36 @@ test("task classifier: cheap tiers stay cheap, structural/multi-part signals bum
     assert.ok(tokens >= prevTokens, `${tier} tokens should not shrink vs previous tier`);
     prevLoops = loops; prevTokens = tokens;
   }
+});
+
+test("auto model routing: cheap tiers get cheap/fast models, big tier gets the strongest model", () => {
+  assert.equal(autoRouteModel("поменяй цвет кнопки на красный"), "ministral-8b-latest");
+  assert.equal(autoRouteModel("поправь баг в форме"), "ministral-14b-latest");
+  assert.equal(autoRouteModel("сделай большой сложный интернет магазин"), "mistral-large-latest");
+});
+
+test("memory prompt rendering is capped: recent entries kept, old ones dropped once the block gets big", () => {
+  // Well under the caps: everything should come through untouched.
+  const small = [
+    { text: "use zustand not redux", category: "convention", createdAt: "2024-01-01" },
+    { text: "api expects snake_case", category: "constraint", createdAt: "2024-01-02" }
+  ];
+  const smallRendered = renderMemoryForPrompt(small);
+  assert.match(smallRendered, /use zustand not redux/);
+  assert.match(smallRendered, /api expects snake_case/);
+  assert.doesNotMatch(smallRendered, /omitted/);
+
+  // Way over both caps (entry count AND char budget): must not silently
+  // balloon the prompt — older entries get dropped and it says so.
+  const big = Array.from({ length: 80 }, (_, i) => ({
+    text: `note number ${i} `.repeat(20), // long entry, well over MAX_ENTRY_LEN territory combined
+    category: "note",
+    createdAt: `2024-01-${(i % 28) + 1}`
+  }));
+  const bigRendered = renderMemoryForPrompt(big);
+  assert.ok(bigRendered.length < 4000, `rendered memory block should stay bounded, got ${bigRendered.length} chars`);
+  assert.match(bigRendered, /omitted/);
+  // Most recent entry (highest index) must survive the cut, not the oldest.
+  assert.match(bigRendered, /note number 79/);
+  assert.doesNotMatch(bigRendered, /note number 0 /);
 });

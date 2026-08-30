@@ -12,7 +12,7 @@ import { exportZip } from "../utils/exportZip.js";
 
 const API_BASE = import.meta.env.VITE_API_URL || "/api";
 // How long to keep polling a fresh deploy for "ready" before giving up and
-// just trusting the URL is fine — Netlify usually finishes in a few seconds
+// just trusting the URL is fine — Vercel usually finishes in a few seconds
 // for a small static site, this is a generous ceiling for slower ones.
 const DEPLOY_POLL_MAX_MS = 45_000;
 const DEPLOY_POLL_INTERVAL_MS = 2_000;
@@ -68,7 +68,7 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
     clearTimeout(pollRef.current);
     pollRef.current = setTimeout(async () => {
       if (Date.now() - startedAt > DEPLOY_POLL_MAX_MS) {
-        // Give up waiting — the deploy is very likely fine, Netlify just
+        // Give up waiting — the deploy is very likely fine, Vercel just
         // hasn't confirmed "ready" yet. Show it as live rather than stuck.
         setDeployState("done");
         return;
@@ -82,7 +82,7 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
           notify(`Сайт опубликован: ${data.url || url}`, "success");
         } else if (data.state === "error") {
           setDeployState("error");
-          notify("Netlify сообщил об ошибке сборки при публикации", "error");
+          notify("Vercel сообщил об ошибке сборки при публикации", "error");
         } else {
           pollDeployStatus(deployId, url, startedAt);
         }
@@ -164,7 +164,7 @@ export default function TopBar({ onMenuClick, onFilesClick, leftSidebarOpen, rig
     <Rocket size={17} />;
   const deployTitle =
     deployState === "zipping" ? "Собираю проект…" :
-    deployState === "processing" ? "Netlify обрабатывает деплой…" :
+    deployState === "processing" ? "Vercel обрабатывает деплой…" :
     deployState === "error" ? "Ошибка публикации — нажмите, чтобы повторить" :
     deployUrl ? `Опубликовано: ${deployUrl} (нажмите ▾ для истории)` : "Опубликовать сайт онлайн";
 

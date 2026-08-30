@@ -112,9 +112,9 @@ const chatLimiter = rateLimit({
   }
 });
 
-// Deploys hit a real, shared Netlify account — cap them harder than general
+// Deploys hit a real, shared Vercel account — cap them harder than general
 // API traffic so one chat spamming "опубликуй" can't exhaust the account's
-// Netlify API rate limit for everyone else.
+// Vercel API rate limit for everyone else.
 const deployLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 6,

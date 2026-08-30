@@ -150,12 +150,30 @@ export async function updateMemoryEntry(scopeId, entryId, { text, category }) {
  * flat dump. Kept short by design — this is meant to be a handful of
  * durable facts, not a second copy of the chat log.
  */
+// Hard caps on what actually reaches the prompt, independent of MAX_ENTRIES
+// (the storage cap). Previously ALL stored entries (up to 60 x 400 chars,
+// ~24000 chars / ~6000 tokens worst case) were re-sent on EVERY single turn
+// of a long-lived project regardless of whether they were remotely relevant
+// to the current request — pure recurring token waste. Keep only the most
+// recent entries, and stop once the rendered block itself gets too big
+// (recency is the only signal we have here without a real relevance model,
+// so newest-first is the safest default).
+const MAX_ENTRIES_IN_PROMPT = 20;
+const MAX_PROMPT_BLOCK_CHARS = 2500;
+
 export function renderMemoryForPrompt(entries) {
   if (!entries || entries.length === 0) return "";
+  // Most recent first, capped, BEFORE grouping — so the entries that get
+  // dropped are the oldest ones, not an arbitrary slice after grouping.
+  const recent = entries.slice(-MAX_ENTRIES_IN_PROMPT).reverse();
+
   const byCategory = {};
-  for (const e of entries) {
-    // sanitize on render as defense in depth
+  let runningLen = 0;
+  let omitted = 0;
+  for (const e of recent) {
     const safeText = String(e.text).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, "").slice(0, MAX_ENTRY_LEN);
+    if (runningLen + safeText.length > MAX_PROMPT_BLOCK_CHARS) { omitted++; continue; }
+    runningLen += safeText.length;
     const safeCat = String(e.category).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 30);
     byCategory[safeCat] = byCategory[safeCat] || [];
     byCategory[safeCat].push(safeText);
@@ -163,5 +181,8 @@ export function renderMemoryForPrompt(entries) {
   const sections = Object.entries(byCategory).map(
     ([cat, texts]) => `${cat.toUpperCase()}:\n${texts.map((t) => `- ${t}`).join("\n")}`
   );
-  return `\n\nPROJECT MEMORY (durable notes from earlier sessions, still relevant unless contradicted by current files):\n${sections.join("\n\n")}`;
+  const olderNote = entries.length > recent.length || omitted
+    ? `\n(${entries.length - recent.length + omitted} older/lower-priority notes omitted for brevity)`
+    : "";
+  return `\n\nPROJECT MEMORY (durable notes from earlier sessions, still relevant unless contradicted by current files):\n${sections.join("\n\n")}${olderNote}`;
 }

@@ -10,7 +10,7 @@ import { createBudgetTracker } from "./budgetTracker.js";
 import { computeSessionMetrics } from "./sessionMetrics.js";
 import { runMistralWebSearch } from "./webSearchClient.js";
 import { buildSingleShotSystemPrompt, parseSingleShotResponse, isProjectSmallEnoughForSingleShot } from "./singleShotGenerator.js";
-import { getMaxLoops, getMaxTokens, classifyTask } from "./taskComplexity.js";
+import { getMaxLoops, getMaxTokens, classifyTask, autoRouteModel } from "./taskComplexity.js";
 import { ensureAgent, startConversation, appendConversation, extractFunctionCalls, extractText } from "./mistralAgentClient.js";
 
 // chatId -> { conversationId, agentKey } — lets a chat's turns re-use the
@@ -210,7 +210,12 @@ export async function runAgentLoop({
     }
   }
 
-  let effectiveModel = model;
+  // "auto" (or no model at all) hands model choice to the task classifier
+  // instead of always paying for whatever model happens to be selected in
+  // the UI — a trivial tweak no longer runs on the same model/budget as a
+  // real backend task. An explicit model choice from the caller is never
+  // touched.
+  let effectiveModel = model && model !== "auto" ? model : autoRouteModel(rawLastPrompt);
   let extraTools = [];
   let leadingNote = "";
 
@@ -268,8 +273,23 @@ export async function runAgentLoop({
   let loopCount = 0;
   // Economy: adaptive loops — see taskComplexity.js for the single shared
   // classifier (this used to be its own drifted-apart regex copy).
-  const MAX_LOOPS = getMaxLoops(rawLastPrompt);
   const taskTier = classifyTask(rawLastPrompt);
+  const MAX_LOOPS_BASE = getMaxLoops(rawLastPrompt);
+  // MAX_LOOPS is now mutable: see the "grace" extension below. Fixing it as
+  // a hard wall was the actual cause of turns visibly still making progress
+  // (files being written each iteration) getting cut off mid-task with
+  // "⚠️ Ход прерван" — which reads as the agent being dumb/giving up, when
+  // it was really just an under-estimated budget from a regex guess.
+  let MAX_LOOPS = MAX_LOOPS_BASE;
+  const MAX_LOOPS_HARD_CAP = Math.ceil(MAX_LOOPS_BASE * 1.5) + 2;
+  // Wall-clock safety net, independent of loop count: even when every
+  // individual model/tool call succeeds within its own retry budget, a turn
+  // that keeps looping can still take several minutes — this (not any
+  // single slow call) is what a user actually experiences as "slow". Tiered
+  // by task size so a trivial tweak can't quietly run for minutes, while a
+  // genuinely big task still gets real room.
+  const TURN_TIME_BUDGET_MS =
+    { trivial: 60_000, fix: 90_000, simple: 150_000, general: 240_000, big: 420_000 }[taskTier] || 180_000;
   const trimForEconomy = (msgs) => {
     if (msgs.length <= 16) return msgs;
     const TARGET = 14;
@@ -338,6 +358,26 @@ export async function runAgentLoop({
   const changedPaths = [];
   const testRuns = [];
   let lastTestRunFailed = false;
+  // Used by the loop-cap "grace" check below (both the Conversations-API
+  // loop and the legacy loop share this): how many files had changed the
+  // last time we checked whether to extend MAX_LOOPS.
+  let changedPathsAtLastGraceCheck = 0;
+  // Shared by both loop implementations: called once per iteration, right
+  // after loopCount/convLoops is incremented. Returns a stopWithProgress()
+  // result if the turn must end now (time budget blown), otherwise null —
+  // and extends MAX_LOOPS in place if the agent is genuinely still making
+  // progress right as it hits the cap, instead of cutting it off.
+  const checkTimeAndGrace = async (currentLoopCount) => {
+    if (Date.now() - perf.turnStart > TURN_TIME_BUDGET_MS) {
+      return await stopWithProgress(`превышен лимит времени на ход (${Math.round(TURN_TIME_BUDGET_MS / 1000)}с)`);
+    }
+    if (currentLoopCount === MAX_LOOPS && MAX_LOOPS < MAX_LOOPS_HARD_CAP && changedPaths.length > changedPathsAtLastGraceCheck) {
+      MAX_LOOPS = Math.min(MAX_LOOPS_HARD_CAP, MAX_LOOPS + Math.max(2, Math.ceil(MAX_LOOPS_BASE * 0.3)));
+      onEvent({ type: "status", text: `Продолжаю — виден реальный прогресс, продлеваю лимит шагов до ${MAX_LOOPS}.` });
+    }
+    changedPathsAtLastGraceCheck = changedPaths.length;
+    return null;
+  };
   // Number of plan steps the agent has visibly completed, used to check off
   // the plan card in the UI as work progresses.
   let planStepDone = 0;
@@ -489,63 +529,92 @@ export async function runAgentLoop({
     // responses before, causing a fallback to the slow loop — see
     // mistralClient.js). Creation needs more headroom than an edit, since
     // an edit only re-outputs the files that actually changed.
-    const singleShotMaxTokens = isSingleShotEdit ? 16000 : 20000;
+    let singleShotMaxTokens = isSingleShotEdit ? 16000 : 20000;
+    // Set once we've already paid for one truncated attempt and bumped the
+    // cap for a retry — see the truncation branch below. Prevents an
+    // infinite bump loop; after this, a second truncation gives up on
+    // single-shot for real instead of paying for a third full completion.
+    let budgetAlreadyBumped = false;
 
     let text = "";
     let result;
-    // Retry on rate-limit here too — previously a single 429 made
-    // single-shot bail out instantly and fall back to the legacy tool loop,
-    // which then did its OWN much longer retry dance (up to 6 attempts per
-    // loop iteration, multiple iterations) until it hit the hard time
-    // budget. Retrying once here, at the cheap single-call stage, is far
-    // less costly than falling through to that.
-    for (let rlAttempt = 0; rlAttempt < 4; rlAttempt++) {
-      text = "";
-      try {
-        result = await timeModelCall(() => chatFn({
-          messages: singleShotMessages,
-          tools: null,
-          model: effectiveModel,
-          maxTokens: singleShotMaxTokens,
-          signal,
-          onChunk: (chunk) => {
-            if (chunk.type === "content") {
-              text += chunk.text;
-              onEvent({ type: "reasoning", text: chunk.text, delta: true });
+    let files = [], deletions = [], rejected = [], summary = "";
+
+    // Outer loop: at most ONE cheap retry, and only for the specific case of
+    // a truncated response (finishReason === "length") on the FIRST attempt
+    // — that's a recoverable, predictable failure (budget was just too
+    // small), unlike a genuine parse failure. Previously any single-shot
+    // failure — including simple truncation — fell straight through to the
+    // full tool loop, which then re-did the ENTIRE task from scratch with
+    // its own model calls: the user paid for a truncated single-shot
+    // attempt AND the full multi-turn loop for the same request. Recovering
+    // in-place here with a bigger cap is far cheaper than that fallback.
+    for (let shotAttempt = 0; shotAttempt < 2; shotAttempt++) {
+      // Retry on rate-limit here too — previously a single 429 made
+      // single-shot bail out instantly and fall back to the legacy tool loop,
+      // which then did its OWN much longer retry dance (up to 6 attempts per
+      // loop iteration, multiple iterations) until it hit the hard time
+      // budget. Retrying once here, at the cheap single-call stage, is far
+      // less costly than falling through to that.
+      let rateLimited = false;
+      for (let rlAttempt = 0; rlAttempt < 4; rlAttempt++) {
+        text = "";
+        try {
+          result = await timeModelCall(() => chatFn({
+            messages: singleShotMessages,
+            tools: null,
+            model: effectiveModel,
+            maxTokens: singleShotMaxTokens,
+            signal,
+            onChunk: (chunk) => {
+              if (chunk.type === "content") {
+                text += chunk.text;
+                onEvent({ type: "reasoning", text: chunk.text, delta: true });
+              }
             }
+          }));
+          break;
+        } catch (err) {
+          if (signal?.aborted) throw err;
+          if (isRateLimit(err) && rlAttempt < 3) {
+            const delay = Math.min(2000 * Math.pow(1.8, rlAttempt), 15000);
+            perf.rateLimitWaitMs += delay;
+            perf.rateLimitHits++;
+            onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay, message: err.message || "Rate limited, retrying…" });
+            await sleep(delay);
+            continue;
           }
-        }));
-        break;
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        if (isRateLimit(err) && rlAttempt < 3) {
-          const delay = Math.min(2000 * Math.pow(1.8, rlAttempt), 15000);
-          perf.rateLimitWaitMs += delay;
-          perf.rateLimitHits++;
-          onEvent({ type: "rate_limit", attempt: rlAttempt + 1, delay, message: err.message || "Rate limited, retrying…" });
-          await sleep(delay);
-          continue;
+          // Model call itself failed (non-rate-limit, or retries exhausted) —
+          // no point retrying single-shot further, let the normal loop's own
+          // retry/backoff handle it.
+          onEvent({ type: "status", text: "Single-shot генерация не удалась, переключаюсь на обычный режим…" });
+          rateLimited = true;
+          break;
         }
-        // Model call itself failed (non-rate-limit, or retries exhausted) —
-        // no point retrying single-shot further, let the normal loop's own
-        // retry/backoff handle it.
-        onEvent({ type: "status", text: "Single-shot генерация не удалась, переключаюсь на обычный режим…" });
-        return null;
       }
-    }
+      if (rateLimited) return null;
 
-    const fullText = result?.content || text;
-    const { files, deletions, rejected, summary } = parseSingleShotResponse(fullText);
+      const fullText = result?.content || text;
+      ({ files, deletions, rejected, summary } = parseSingleShotResponse(fullText));
 
-    // Nothing parsed => model ignored the format (or this genuinely needed
-    // tools, e.g. it tried to web_fetch something). Bail to the tool loop
-    // rather than showing the user a raw, unparsed dump.
-    if (files.length === 0 && deletions.length === 0) {
+      if (files.length > 0 || deletions.length > 0) break; // parsed fine, stop retrying
+
       const truncated = result?.finishReason === "length";
+      if (truncated && !budgetAlreadyBumped) {
+        budgetAlreadyBumped = true;
+        singleShotMaxTokens = Math.min(Math.round(singleShotMaxTokens * 1.6), 30000);
+        onEvent({ type: "status", text: `Ответ обрезан по лимиту токенов, пробую ещё раз с более высоким лимитом (${singleShotMaxTokens})…` });
+        continue; // one more shotAttempt with the bumped cap
+      }
+
+      // Nothing parsed and either not a truncation, or already retried once
+      // => model ignored the format (or this genuinely needed tools, e.g.
+      // it tried to web_fetch something). Bail to the tool loop rather than
+      // showing the user a raw, unparsed dump.
       onEvent({
         type: "status",
         text: truncated
-          ? `Ответ обрезан по лимиту токенов (${singleShotMaxTokens}), не удалось разобрать файлы — переключаюсь на обычный режим…`
+          ? `Ответ снова обрезан по лимиту токенов (${singleShotMaxTokens}), не удалось разобрать файлы — переключаюсь на обычный режим…`
           : "Не удалось разобрать одношаговый ответ, переключаюсь на обычный режим…"
       });
       return null;
@@ -675,6 +744,8 @@ export async function runAgentLoop({
     while (convLoops < MAX_LOOPS) {
       convLoops++;
       if (signal?.aborted) throw new Error("Aborted");
+      const graceResult = await checkTimeAndGrace(convLoops);
+      if (graceResult) return graceResult;
 
       const text = extractText(outputs);
       if (text && !sawStreamedChunk) onEvent({ type: "reasoning", text });
@@ -760,6 +831,10 @@ export async function runAgentLoop({
 
   while (loopCount < MAX_LOOPS) {
     loopCount++;
+    {
+      const graceResult = await checkTimeAndGrace(loopCount);
+      if (graceResult) return graceResult;
+    }
 
     let currentText = "";
     let result = null;
