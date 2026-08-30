@@ -1,16 +1,25 @@
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Plus, MessageSquare, X, Sparkles, PanelLeftClose, Search } from "lucide-react";
+import { Plus, MessageSquare, X, Sparkles, PanelLeftClose, Search, Trash2, Check } from "lucide-react";
 import { useSessions } from "../context/SessionsContext.jsx";
 import { useUI } from "../context/UIContext.jsx";
 import { useSettings } from "../context/SettingsContext.jsx";
 
 export default function Sidebar({ open, onClose, isMobile }) {
-  const { chatList, chatId, newChat, loadChat } = useSessions();
+  const { chatList, chatId, newChat, loadChat, deleteChat } = useSessions();
   const { leftSidebarOpen, setLeftSidebarOpen } = useUI();
   const { settings, MODELS } = useSettings();
   const activeModel = MODELS.find((m) => m.id === settings.model);
   const [filter, setFilter] = useState("");
+  const [pendingDeleteId, setPendingDeleteId] = useState(null);
+
+  // Auto-reset the "confirm delete" state after a few seconds — needed for
+  // mobile where there's no mouseleave to fall back on.
+  React.useEffect(() => {
+    if (!pendingDeleteId) return;
+    const t = setTimeout(() => setPendingDeleteId(null), 3000);
+    return () => clearTimeout(t);
+  }, [pendingDeleteId]);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -59,14 +68,41 @@ export default function Sidebar({ open, onClose, isMobile }) {
           <div className="sidebar-empty">Пока нет сохранённых чатов</div>
         )}
         {filtered.map((c) => (
-          <button
-            key={c.id}
-            className={`sidebar-item ${c.id === chatId ? "active" : ""}`}
-            onClick={() => handleLoadChat(c.id)}
-          >
-            <MessageSquare size={15} className="sidebar-item-icon" />
-            <span className="sidebar-item-title">{c.title}</span>
-          </button>
+          <div key={c.id} className={`sidebar-item-row ${c.id === chatId ? "active" : ""}`}>
+            <button
+              className="sidebar-item"
+              onClick={() => handleLoadChat(c.id)}
+            >
+              <MessageSquare size={15} className="sidebar-item-icon" />
+              <span className="sidebar-item-title">{c.title}</span>
+            </button>
+            {pendingDeleteId === c.id ? (
+              <button
+                className="sidebar-item-delete-btn confirm"
+                title="Подтвердить удаление"
+                aria-label="Подтвердить удаление чата"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPendingDeleteId(null);
+                  deleteChat(c.id);
+                }}
+                onMouseLeave={() => setPendingDeleteId(null)}              >
+                <Check size={14} />
+              </button>
+            ) : (
+              <button
+                className="sidebar-item-delete-btn"
+                title="Удалить чат"
+                aria-label="Удалить чат"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setPendingDeleteId(c.id);
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
+          </div>
         ))}
         {filter.trim() && filtered.length === 0 && <div className="sidebar-empty">Ничего не найдено</div>}
       </div>

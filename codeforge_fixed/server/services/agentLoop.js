@@ -1,5 +1,6 @@
 import { streamMistralChat, VISION_MODEL, IMAGE_GENERATION_TOOL } from "./mistralClient.js";
 import { streamGeminiChat } from "./geminiClient.js";
+import { streamCloudflareChat, isCloudflareModel } from "./cloudflareClient.js";
 import { toolDefinitions } from "./toolDefinitions.js";
 import { executeTool, createFSFromFiles, fsToArray } from "./projectFS.js";
 import { runCouncil, delegateSubagentTool, runSubagent } from "./orchestrator.js";
@@ -9,7 +10,7 @@ import { createBudgetTracker } from "./budgetTracker.js";
 import { computeSessionMetrics } from "./sessionMetrics.js";
 import { runMistralWebSearch } from "./webSearchClient.js";
 import { buildSingleShotSystemPrompt, parseSingleShotResponse, isProjectSmallEnoughForSingleShot } from "./singleShotGenerator.js";
-import { getMaxLoops, getMaxTokens } from "./taskComplexity.js";
+import { getMaxLoops, getMaxTokens, classifyTask } from "./taskComplexity.js";
 import { ensureAgent, startConversation, appendConversation, extractFunctionCalls, extractText } from "./mistralAgentClient.js";
 
 // chatId -> { conversationId, agentKey } — lets a chat's turns re-use the
@@ -35,7 +36,9 @@ Rules:
 2. Prefer static HTML/CSS/JS (no build). Only use framework if user asks.
 3. When done, summarize and STOP — no more tool calls. Never run dev server; use run_command if needed.
 4. Use file tools: list_directory_tree, read_file(s), write_file, edit_file, delete/rename, find_files, search_code, grep, lint_file(s), web_fetch.
+4a. Before read_file(s) on a file you suspect is large (>150 lines) and you only need to locate something in it, call outline_file first — it returns function/class/component signatures with line numbers for a fraction of the tokens a full read costs. Only fall back to read_file(s) once you know which part you actually need to see or edit.
 4b. Creating/overwriting more than one file in the same turn? Use write_files with ALL of them in ONE call — never one write_file per file. Same for reads (read_files) and lint (lint_files). Every extra tool call costs a full network round trip AND real generation time — this is not a UI/perceived-latency thing, it is actual minutes and actual tokens.
+4c. Editing several separate spots in the SAME file in one turn? Use apply_patch with all the edits in one call instead of several edit_file calls on that path.
 5. Return files via tools only — never paste code in chat.
 6. Read before edit if unsure; use list_directory_tree for structure.
 7. Briefly explain reasoning (shown as thought); code only in tools.
@@ -236,7 +239,8 @@ export async function runAgentLoop({
   }
 
   const isGemini = /^gemini-3\./.test(effectiveModel);
-  const chatFn = isGemini ? streamGeminiChat : streamMistralChat;
+  const isCloudflare = isCloudflareModel(effectiveModel);
+  const chatFn = isCloudflare ? streamCloudflareChat : isGemini ? streamGeminiChat : streamMistralChat;
 
   const messages = [{ role: "system", content: SYSTEM_PROMPT + leadingNote + memoryBlock }, ...workingHistory];
 
@@ -244,7 +248,7 @@ export async function runAgentLoop({
   // Turns this into a Mistral multimodal message (text + image_url parts) and
   // forces the vision-capable Pixtral model for this turn only, so the agent
   // can actually "see" the reference while still using its normal file tools.
-  if (images && images.length > 0 && !isGemini) {
+  if (images && images.length > 0 && !isGemini && !isCloudflare) {
     effectiveModel = VISION_MODEL;
     const lastIdx = messages.length - 1;
     const lastMsg = messages[lastIdx];
@@ -265,9 +269,20 @@ export async function runAgentLoop({
   // Economy: adaptive loops — see taskComplexity.js for the single shared
   // classifier (this used to be its own drifted-apart regex copy).
   const MAX_LOOPS = getMaxLoops(rawLastPrompt);
+  const taskTier = classifyTask(rawLastPrompt);
   const trimForEconomy = (msgs) => {
     if (msgs.length <= 16) return msgs;
-    return [msgs[0], ...msgs.slice(-12)];
+    const TARGET = 14;
+    let start = Math.max(1, msgs.length - TARGET);
+    // A "tool" message MUST be immediately preceded by the assistant
+    // message that issued its tool_calls — Mistral rejects the request
+    // outright otherwise (or, worse, silently produces a confused
+    // response from a context missing half a tool-call/result pair). A
+    // flat slice(-12) could land the cut right in the middle of such a
+    // pair on any turn longer than 16 messages; walk back to the start of
+    // that assistant/tool group instead of ever slicing through one.
+    while (start > 1 && msgs[start].role === "tool") start--;
+    return [msgs[0], ...msgs.slice(start)];
   };
   // For simple tasks drop heavy tools to save tokens/round-trips
   const isSimpleEconomy = /(простой сайт|одностраничник|лендинг|simple site|landing page|простой)/i.test(rawLastPrompt);
@@ -286,10 +301,25 @@ export async function runAgentLoop({
     }
     return false;
   })();
+  // The full toolDefinitions list is ~2000 tokens of JSON schema, and it is
+  // resent to the model on EVERY single loop iteration (function-calling
+  // tools are part of the prompt, not a one-time cost) — for a 10-16
+  // iteration turn that's 20,000-32,000 tokens spent on schemas for tools
+  // that were never called, before a single line of actual work happens.
+  // Most requests ("trivial"/"fix"/"simple" tiers — a tweak, a small fix, a
+  // one-pager) never touch the rarer/specialist tools below, so only pay
+  // for them on tiers where they're plausibly relevant ("general"/"big").
+  const RARE_TOOLS = new Set([
+    "semantic_search", "web_fetch", "web_search", "duplicate_file",
+    "create_folder", "get_project_stats", "todo_scan", "format_code",
+    "analyze_bundle", "extract_colors", "generate_tests", "refactor"
+  ]);
+  const isRoomyTier = (taskTier === "general" || taskTier === "big") && !isCloudflare;
   const baseTools = toolDefinitions.filter((t) => {
     const name = t.function.name;
     if (!hasTestSetup && name === "run_tests") return false;
     if (isSimpleEconomy && ["semantic_search", "delegate_to_subagent"].includes(name)) return false;
+    if (!isRoomyTier && RARE_TOOLS.has(name)) return false;
     return true;
   });
   // Image mode: add Mistral's built-in image_generation connector (works in
@@ -311,6 +341,52 @@ export async function runAgentLoop({
   // Number of plan steps the agent has visibly completed, used to check off
   // the plan card in the UI as work progresses.
   let planStepDone = 0;
+  // Most recent make_plan payload, if any — kept so an early exit (budget/
+  // loop limit hit) can restate it in the hand-off summary below instead of
+  // being lost.
+  let lastPlan = null;
+
+  // Builds a concrete, model-readable status report for any turn that ends
+  // WITHOUT a normal "I'm done" answer (hit MAX_LOOPS, hit a hard budget,
+  // rate-limited out, or stuck repeating itself). This is pushed as the
+  // assistant's actual message content — never leave content empty here.
+  //
+  // Why this matters: the client only ever resends {role, content} text
+  // pairs as history on the NEXT turn (no tool-call trace crosses the
+  // network — see ChatContext.jsx). It also HARD-DROPS any assistant
+  // message whose content is empty before sending, since Mistral 400s on
+  // {role:"assistant", content:""} with no tool_calls. So an early exit
+  // that only emits an `error` event and never pushes a real assistant
+  // message is invisible on the next turn: the whole turn — everything the
+  // agent figured out and did — evaporates from the conversation the
+  // instant the user says "продолжи", even though the files it wrote are
+  // still there. This function is what makes "продолжи" actually continue
+  // instead of restarting the agent's reasoning from zero.
+  function buildProgressNote(reason) {
+    const lines = [`⚠️ Ход прерван: ${reason}`];
+    const files = [...new Set(changedPaths)];
+    if (files.length) {
+      lines.push(`\nИзменённые/созданные файлы (${files.length}): ${files.slice(0, 25).join(", ")}${files.length > 25 ? "…" : ""}`);
+    } else {
+      lines.push(`\nФайлы в этом ходе ещё не менялись.`);
+    }
+    if (lastPlan) {
+      const steps = Array.isArray(lastPlan.steps) ? lastPlan.steps : Array.isArray(lastPlan) ? lastPlan : null;
+      if (steps && steps.length) {
+        lines.push(`\nПлан (шаг ${Math.min(planStepDone, steps.length)}/${steps.length} отмечен как сделанный):`);
+        steps.forEach((s, i) => {
+          const label = typeof s === "string" ? s : s?.title || s?.step || JSON.stringify(s);
+          lines.push(`${i < planStepDone ? "✅" : "⏳"} ${i + 1}. ${label}`);
+        });
+      }
+    }
+    if (testRuns.length) {
+      const last = testRuns[testRuns.length - 1];
+      lines.push(`\nПоследний прогон тестов: ${last?.ok ? "успех" : "провал"}.`);
+    }
+    lines.push(`\nПродолжая этот чат дальше, не начинай заново — опирайся на текущее дерево файлов и план выше, доделай оставшиеся пункты.`);
+    return lines.join("\n");
+  }
 
   // Shared exit path for every place the loop can end (final answer, hit
   // MAX_LOOPS, or an abort). Applies auto-rollback and emits the session
@@ -345,6 +421,17 @@ export async function runAgentLoop({
     // Strip system message before persisting - don't store system prompt in DB
     const messagesToPersist = messages.filter((m) => m.role !== "system");
     return { messages: messagesToPersist, files: fsToArray(fsMap), usage: totalUsage, rolledBack };
+  }
+
+  // Every early-exit branch (MAX_LOOPS, hard budget, rate-limit exhausted,
+  // stuck-repeating) MUST go through this instead of calling finalizeTurn()
+  // directly with only an `error` event, or the turn silently loses all its
+  // content on the next message — see buildProgressNote() above for why.
+  async function stopWithProgress(reason) {
+    const note = buildProgressNote(reason);
+    messages.push({ role: "assistant", content: note });
+    onEvent({ type: "final", text: note });
+    return await finalizeTurn();
   }
 
   // helper for rate-limit detection and backoff (used by both single-shot
@@ -402,7 +489,7 @@ export async function runAgentLoop({
     // responses before, causing a fallback to the slow loop — see
     // mistralClient.js). Creation needs more headroom than an edit, since
     // an edit only re-outputs the files that actually changed.
-    const singleShotMaxTokens = isSingleShotEdit ? 10000 : 14000;
+    const singleShotMaxTokens = isSingleShotEdit ? 16000 : 20000;
 
     let text = "";
     let result;
@@ -511,6 +598,7 @@ export async function runAgentLoop({
   // (runCouncil/runSubagent) which stay on chat.completions internally.
   const canUseConversationsPath =
     !isGemini &&
+    !isCloudflare &&
     mode === "single" &&
     !requireApproval &&
     !requirePlanApproval &&
@@ -529,7 +617,7 @@ export async function runAgentLoop({
       agentId = await ensureAgent({ model: effectiveModel, instructions, tools: agentTools, reasoningEffort });
     } catch (err) {
       emitError(onEvent, `Не удалось создать/получить Agent в Mistral: ${err.message}`, err);
-      return await finalizeTurn();
+      return await stopWithProgress(`не удалось создать/получить Agent в Mistral (${err.message})`);
     }
 
     const agentKey = `${effectiveModel}::${instructions.length}::${agentTools.length}::${reasoningEffort}`;
@@ -579,7 +667,7 @@ export async function runAgentLoop({
       }
     } catch (err) {
       emitError(onEvent, `Mistral Conversations API error: ${err.message}`, err);
-      return await finalizeTurn();
+      return await stopWithProgress(`ошибка Mistral Conversations API (${err.message})`);
     }
     if (convUsage) budget.addUsage(convUsage);
 
@@ -650,7 +738,7 @@ export async function runAgentLoop({
         onEvent({ type: "budget_warning", ...budgetEvent, snapshot: budget.snapshot() });
         if (budgetEvent.exceeded) {
           onEvent({ type: budgetPause ? "status" : "error", message: `Budget limit (${budgetEvent.kind}) reached — stopping.` });
-          return await finalizeTurn();
+          return await stopWithProgress(`превышен бюджет хода (${budgetEvent.kind}: ${budgetEvent.value} / ${budgetEvent.limit})`);
         }
       }
 
@@ -662,12 +750,12 @@ export async function runAgentLoop({
         if (convUsage) budget.addUsage(convUsage);
       } catch (err) {
         emitError(onEvent, `Mistral Conversations API error: ${err.message}`, err);
-        return await finalizeTurn();
+        return await stopWithProgress(`ошибка Mistral Conversations API (${err.message})`);
       }
     }
 
     onEvent({ type: "error", message: "Агент превысил лимит шагов цикла (MAX_LOOPS)." });
-    return await finalizeTurn();
+    return await stopWithProgress(`достигнут лимит шагов цикла (${MAX_LOOPS})`);
   }
 
   while (loopCount < MAX_LOOPS) {
@@ -712,18 +800,19 @@ export async function runAgentLoop({
           continue;
         }
         // non-rate-limit or exhausted after retries — save progress and finish gracefully instead of crashing the job
-        if (isRateLimit(err)) {
-          onEvent({ type: "error", message: `Превышен лимит запросов (429). Прогресс сохранён — ${fsMap.size} файлов. Напишите «продолжи» чтобы возобновить.` });
-        } else {
-          onEvent({ type: "error", message: err.message || String(err) });
-        }
+        onEvent({
+          type: "error",
+          message: isRateLimit(err)
+            ? `Превышен лимит запросов (429). Прогресс сохранён — ${fsMap.size} файлов.`
+            : (err.message || String(err))
+        });
         onEvent({ type: "files", files: fsToArray(fsMap) });
-        return await finalizeTurn();
+        return await stopWithProgress(isRateLimit(err) ? "лимит запросов к модели (429)" : `ошибка модели (${err.message || err})`);
       }
     }
     if (!result) {
-      onEvent({ type: "error", message: "Не удалось получить ответ модели после нескольких попыток (rate limit). Прогресс сохранён, попробуйте продолжить сообщением «продолжи»." });
-      return await finalizeTurn();
+      onEvent({ type: "error", message: "Не удалось получить ответ модели после нескольких попыток (rate limit)." });
+      return await stopWithProgress("не удалось получить ответ модели после нескольких попыток (rate limit)");
     }
 
     if (result.usage) {
@@ -739,13 +828,14 @@ export async function runAgentLoop({
     if (budgetEvent) {
       onEvent({ type: "budget_warning", ...budgetEvent, snapshot: budget.snapshot() });
       if (budgetEvent.exceeded) {
+        const reason = `превышен бюджет хода (${budgetEvent.kind}: ${budgetEvent.value} / ${budgetEvent.limit})`;
         if (budgetPause) {
           onEvent({ type: "status", text: `Пауза по лимиту (${budgetEvent.kind}); продолжи вручную` });
           onEvent({ type: "budget_warning", ...budgetEvent, level: "paused", snapshot: budget.snapshot() });
-          return await finalizeTurn();
+          return await stopWithProgress(reason);
         }
         onEvent({ type: "error", message: `Hard budget limit exceeded (${budgetEvent.kind}: ${budgetEvent.value} / ${budgetEvent.limit}). Aborting.` });
-        return await finalizeTurn();
+        return await stopWithProgress(reason);
       }
     }
 
@@ -779,7 +869,7 @@ export async function runAgentLoop({
     else { repeatedTurnSignature = turnSignature; repeatedTurnCount = 0; }
     if (repeatedTurnCount >= 2) {
       onEvent({ type: "error", message: "Агент повторяет один и тот же набор действий — остановил цикл, чтобы не тратить время." });
-      return await finalizeTurn();
+      return await stopWithProgress("агент повторял один и тот же вызов инструмента без прогресса");
     }
 
     const preparedCalls = result.toolCalls.map((call) => {
@@ -894,6 +984,7 @@ export async function runAgentLoop({
       }
 
       if (execResult.isPlan) {
+        lastPlan = execResult.result;
         onEvent({ type: "plan", plan: execResult.result });
         // Plan approval gate: pause and wait for the user to approve (button
         // or text) before doing any real work. The request that started the
@@ -987,6 +1078,5 @@ export async function runAgentLoop({
     for (const item of writeCalls) await executePrepared(preparedCalls.find((p) => p.call === item.call));
   }
 
-  onEvent({ type: "final", text: "Reached maximum tool-call iterations for this turn. Please continue in a follow-up message." });
-  return await finalizeTurn();
+  return await stopWithProgress(`достигнут лимит шагов цикла (${MAX_LOOPS})`);
 }

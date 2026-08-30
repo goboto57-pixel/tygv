@@ -3399,3 +3399,165 @@
 .shell.is-mobile .mobile-nav { min-height: 64px; padding-top: 4px; box-shadow: 0 -6px 24px rgba(0,0,0,0.18); z-index: 20; }
 .shell.is-mobile .chat-scroll { overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .shell.is-mobile .chat-input-wrap { padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+
+/* ==== File tree / chat list row delete buttons (added with file & chat
+   deletion). Sized for touch on mobile per the same min-44px pattern used
+   above for other interactive controls. ==== */
+.tree-file-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.tree-file-row .tree-file {
+  flex: 1;
+  min-width: 0;
+}
+.tree-file-delete-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.tree-file-row:hover .tree-file-delete-btn,
+.tree-file-delete-btn:focus-visible {
+  opacity: 1;
+}
+.tree-file-delete-btn:hover {
+  background: var(--bg-3);
+  color: var(--accent-danger, #e5484d);
+}
+.tree-file-delete-btn.confirm {
+  opacity: 1;
+  color: var(--accent-danger, #e5484d);
+  background: color-mix(in srgb, var(--accent-danger, #e5484d) 14%, transparent);
+}
+
+.sidebar-item-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-sm);
+}
+.sidebar-item-row.active {
+  background: var(--bg-3);
+}
+.sidebar-item-row .sidebar-item {
+  flex: 1;
+  min-width: 0;
+}
+.sidebar-item-delete-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.sidebar-item-row:hover .sidebar-item-delete-btn,
+.sidebar-item-delete-btn:focus-visible {
+  opacity: 1;
+}
+.sidebar-item-delete-btn:hover {
+  background: var(--bg-3);
+  color: var(--accent-danger, #e5484d);
+}
+.sidebar-item-delete-btn.confirm {
+  opacity: 1;
+  color: var(--accent-danger, #e5484d);
+  background: color-mix(in srgb, var(--accent-danger, #e5484d) 14%, transparent);
+}
+/* Touch devices have no hover — keep delete buttons visible so they're
+   reachable at all, and give them a real touch target. */
+.shell.is-mobile .tree-file-delete-btn,
+.shell.is-mobile .sidebar-item-delete-btn {
+  opacity: 1;
+  width: 36px;
+  height: 36px;
+}
+
+/* ==== General mobile pass (layout/sizing only — no color changes) ====
+   Targets the concrete things that break on a phone: fixed desktop widths
+   overflowing the viewport, text/tap targets too small to use with a
+   thumb, and wide content (code blocks, perf/report panels, file rows)
+   not scrolling contained within their own box. */
+.shell.is-mobile .message-bubble {
+  max-width: 100%;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.shell.is-mobile .message-bubble pre,
+.shell.is-mobile .message-bubble code {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.shell.is-mobile .message-bubble table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.shell.is-mobile .perf-panel,
+.shell.is-mobile .session-report {
+  padding: 10px 11px;
+}
+.shell.is-mobile .perf-panel-row {
+  grid-template-columns: 13px minmax(0, 1fr) minmax(44px, 26%) auto;
+  font-size: 11px;
+}
+.shell.is-mobile .perf-panel-row-label {
+  white-space: normal;
+}
+.shell.is-mobile .session-report-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+.shell.is-mobile .file-tree {
+  max-width: 100%;
+}
+.shell.is-mobile .tree-file,
+.shell.is-mobile .tree-folder {
+  min-height: 38px;
+}
+.shell.is-mobile .sidebar-item {
+  min-height: 44px;
+}
+.shell.is-mobile .files-panel-body {
+  flex-direction: column;
+}
+.shell.is-mobile .editor-area {
+  min-width: 0;
+  width: 100%;
+}
+.shell.is-mobile .breadcrumbs {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.shell.is-mobile input,
+.shell.is-mobile textarea,
+.shell.is-mobile select {
+  font-size: 16px; /* prevents iOS Safari auto-zoom on focus */
+}
+.shell.is-mobile .modal-overlay {
+  padding: 0;
+}
+.shell.is-mobile * {
+  -webkit-tap-highlight-color: transparent;
+}

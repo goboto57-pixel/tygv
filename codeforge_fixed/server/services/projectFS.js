@@ -741,6 +741,60 @@ export async function executeTool(toolName, args, fsMap) {
       return { result: markers.length ? markers : "No TODO/FIXME/HACK markers found." };
     }
 
+    // outline_file: token-efficient structural view of a file — top-level
+    // function/class/component/export signatures with their line numbers,
+    // instead of the whole file body. Lets the agent orient itself in a
+    // large file (which changes are needed, roughly where) before deciding
+    // whether it actually needs a full read_file — read_file on a big file
+    // burns a large chunk of the turn's token budget just to locate one
+    // function; this gives the same "where is X" answer for a fraction of
+    // the tokens. Language-agnostic-ish: covers JS/TS/JSX, Python, and CSS
+    // rule blocks via a handful of common signature shapes rather than a
+    // real per-language parser (no extra dependency, good enough to
+    // navigate — not a substitute for reading the file when precision
+    // matters).
+    case "outline_file": {
+      const p = (args.path || "").replace(/^\/+/, "");
+      if (!p) return { error: "path required" };
+      const content = fsMap.get(p);
+      if (content === undefined) return { error: `File not found: ${p}` };
+
+      const SIG_PATTERNS = [
+        // JS/TS/JSX: function decls, arrow/const function assignments, classes, exported consts
+        /^\s*(export\s+)?(default\s+)?(async\s+)?function\s*\*?\s*([A-Za-z0-9_$]+)/,
+        /^\s*(export\s+)?(default\s+)?class\s+([A-Za-z0-9_$]+)/,
+        /^\s*(export\s+)?const\s+([A-Za-z0-9_$]+)\s*=\s*(async\s*)?\(?.*=>/,
+        /^\s*(export\s+)?const\s+([A-Za-z0-9_$]+)\s*=\s*(React\.)?(memo|forwardRef)\(/,
+        // Python
+        /^\s*(async\s+)?def\s+([A-Za-z0-9_]+)\s*\(/,
+        /^\s*class\s+([A-Za-z0-9_]+)\s*[:\(]/,
+        // CSS top-level rule / id / class selectors (rough — first selector on the line)
+        /^([.#][A-Za-z0-9_-]+(?:[ ,.#:A-Za-z0-9_-]*)?)\s*\{/
+      ];
+
+      const lines = content.split("\n");
+      const outline = [];
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        for (const re of SIG_PATTERNS) {
+          const m = line.match(re);
+          if (m) {
+            outline.push({ line: i + 1, signature: line.trim().slice(0, 160) });
+            break;
+          }
+        }
+        if (outline.length >= 300) {
+          outline.push({ truncated: true, note: "More matches exist, showing first 300" });
+          break;
+        }
+      }
+      return {
+        result: outline.length
+          ? { path: p, totalLines: lines.length, outline }
+          : { path: p, totalLines: lines.length, outline: [], note: "No recognizable top-level signatures found (unsupported language, or a flat data/markup file) — use read_file for the full content." }
+      };
+    }
+
     case "format_code": {
       const p = (args.path || "").replace(/^\/+/, "");
       if (!p) return { error: "path required" };

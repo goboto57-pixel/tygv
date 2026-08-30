@@ -107,14 +107,29 @@ export function startOrResumeJob({ runId, params, onPersist }) {
     .then(async (outcome) => {
       job.status = "done";
       job.finalState = outcome;
-      emit({ type: "done" });
+
+      // Persist BEFORE emitting "done": the client's SSE connection closes
+      // on "done" (see routes/chat.js res.end()), so anything emitted after
+      // that point never reaches the browser. Persistence used to run
+      // after "done" with its error silently swallowed (bare `catch {}`,
+      // not even logged) — meaning if Cloudinary env vars were missing or
+      // wrong, EVERY chat/file save failed forever with zero visibility to
+      // either the server logs or the user. That's the actual cause of
+      // "chats and files aren't saving": it wasn't a UI bug, saves were
+      // failing silently on every single turn.
       if (params.chatId && typeof onPersist === "function") {
         try {
           await onPersist(outcome);
-        } catch {
-          // persistence best-effort; the client still has the streamed events
+        } catch (err) {
+          console.error(`[jobManager] persistence failed for chatId=${params.chatId}:`, err);
+          emit({
+            type: "status",
+            text: `⚠ Не удалось сохранить чат/файлы (${err?.message || "ошибка хранилища"}). Проверьте переменные окружения хранилища на сервере.`
+          });
         }
       }
+
+      emit({ type: "done" });
       scheduleEvict(job);
     })
     .catch((err) => {

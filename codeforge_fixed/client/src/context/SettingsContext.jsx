@@ -5,7 +5,6 @@ const SettingsContext = createContext(null);
 export const MODELS = [
   // --- Mistral: основные ---
   { id: "mistral-medium-latest", label: "Mistral Medium", provider: "Mistral", group: "Mistral", desc: "модель по умолчанию в консоли Mistral — баланс скорости/качества, хороша для сайтов и приложений", vision: true },
-  { id: "zai-glm-5-2", label: "Z.ai GLM 5.2", provider: "Mistral", group: "Mistral · сторонние", desc: "сторонняя open-weight модель Z.ai, размещённая в Mistral для длинного контекста, coding и агентных задач" },
   { id: "mistral-large-latest", label: "Mistral Large", provider: "Mistral", group: "Mistral", desc: "флагман для сложных рассуждений и архитектуры, медленнее Medium", vision: true },
   { id: "mistral-small-latest", label: "Mistral Small", provider: "Mistral", group: "Mistral", desc: "Small 4: reasoning + vision + агентный код в одной модели, поддерживает эффорт", vision: true, reasoning: true },
   // --- Mistral: код ---
@@ -28,7 +27,9 @@ export const MODELS = [
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", provider: "Google", group: "Gemini", desc: "стабильный Flash для обычных задач" },
   { id: "gemini-3.5-flash-lite", label: "Gemini 3.5 Flash-Lite", provider: "Google", group: "Gemini", desc: "максимальная скорость для лёгких подзадач" },
   { id: "gemini-3.1-flash-lite", label: "Gemini 3.1 Flash-Lite", provider: "Google", group: "Gemini", desc: "быстрый и экономичный Flash-Lite" },
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", provider: "Google", group: "Gemini", desc: "сложное рассуждение и тяжёлый coding" }
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", provider: "Google", group: "Gemini", desc: "сложное рассуждение и тяжёлый coding" },
+  // --- Cloudflare Workers AI ---
+  { id: "@cf/qwen/qwen3-30b-a3b-fp8", label: "Qwen3 30B A3B (FP8)", provider: "Cloudflare", group: "Cloudflare", desc: "MoE-модель на Cloudflare Workers AI, быстрый инференс, поддерживает function calling. Контекст всего 32K — не для больших проектов." }
 ];
 
 // Режимы работы модели — те же, что "Code / Search / Premium Search / Image"

@@ -196,8 +196,35 @@ export function SessionsProvider({ children, notify }) {
     }
   }, [openSessions, activeChatId, chatList, loadChat, ensureNewChat]);
 
-  const renameSessionTab = useCallback((id, title) => {
-    const safeTitle = String(title || "Сессия").trim().slice(0, 120) || "Сессия";
+  // Permanently deletes a chat: server record + any local cache of it, and
+  // closes its tab/switches away if it was the active one. There was
+  // previously no way to remove a chat at all once created.
+  const deleteChat = useCallback(async (id) => {
+    try {
+      await fetch(`${API_BASE}/projects/chats/${encodeURIComponent(id)}`, { method: "DELETE" });
+    } catch {
+      // best-effort — still remove locally so the UI doesn't get stuck
+      // pointing at a chat the user asked to delete
+    }
+    try {
+      localStorage.removeItem(`codeforge_chat_${id}`);
+    } catch {
+      // ignore
+    }
+    setChatList((prev) => prev.filter((c) => c.id !== id));
+    setOpenSessions((prev) => prev.filter((s) => s.id !== id));
+    if (id === activeChatId) {
+      const fallback = chatList.find((c) => c.id !== id);
+      if (fallback?.id) {
+        await loadChat(fallback.id);
+      } else {
+        await ensureNewChat();
+      }
+    }
+    await loadChatList();
+  }, [activeChatId, chatList, loadChat, ensureNewChat, loadChatList]);
+
+  const renameSessionTab = useCallback((id, title) => {    const safeTitle = String(title || "Сессия").trim().slice(0, 120) || "Сессия";
     setOpenSessions((prev) => prev.map((s) => s.id === id ? { ...s, title: safeTitle } : s));
     setActiveSession((prev) => prev?.id === id ? { ...prev, title: safeTitle } : prev);
   }, []);
@@ -281,6 +308,7 @@ export function SessionsProvider({ children, notify }) {
     openSessions,
     closeSessionTab,
     renameSessionTab,
+    deleteChat,
     chatList,
     loadChatList,
     loadChat,
@@ -293,7 +321,7 @@ export function SessionsProvider({ children, notify }) {
     restoreSnapshot,
     diffSnapshots,
   }), [
-    ready, activeChatId, activeSession, openSessions, closeSessionTab, renameSessionTab,
+    ready, activeChatId, activeSession, openSessions, closeSessionTab, renameSessionTab, deleteChat,
     chatList, loadChatList, loadChat, newChat, saveSessionMetadata, snapshots,
     loadSnapshots, takeSnapshot, restoreSnapshot, diffSnapshots,
   ]);

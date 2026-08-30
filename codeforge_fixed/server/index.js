@@ -58,6 +58,32 @@ app.use((req, res, next) => {
   next();
 });
 
+// App-secret gate: every /api/* request (from the website's own frontend or
+// the Android app) must carry the shared secret in the X-App-Secret header,
+// or it's rejected. This is meant to keep out automated bots/scripts that
+// scan for open API endpoints and hammer them directly — it is NOT meant to
+// stop a determined attacker who reads the page source, since the secret is
+// necessarily shipped inside the built client bundle (visible in DevTools)
+// and inside the Android APK (extractable with reverse-engineering tools).
+// That's an inherent limit of any secret embedded in a public client with no
+// real user-auth system — full protection would require login/API keys per
+// user instead.
+//
+// Set APP_SHARED_SECRET in the Render environment (and the same value in the
+// client's VITE_APP_SECRET build env + the Android app's Constants.kt) to
+// enable this. If APP_SHARED_SECRET is not set on the server, the gate is a
+// no-op and every request passes through unchanged (dev-friendly default).
+const APP_SHARED_SECRET = process.env.APP_SHARED_SECRET || "";
+app.use("/api", (req, res, next) => {
+  if (!APP_SHARED_SECRET) return next(); // gate disabled unless configured
+  if (req.path === "/health") return next(); // let uptime monitors ping freely
+  const provided = req.headers["x-app-secret"];
+  if (provided !== APP_SHARED_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+});
+
 // Rate limiting with different limits for different endpoints
 // Use per-chatId or per-user key instead of just IP (Render shares IPs)
 const getRateLimitKey = (req) => {

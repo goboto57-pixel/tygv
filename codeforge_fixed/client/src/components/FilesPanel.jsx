@@ -202,10 +202,19 @@ export default function FilesPanel({ open, onClose, isMobile, mobileVisible }) {
 
         {tab === "code" ? (
           <div className="files-panel-body">
-            <FileTree files={filteredFiles} activeFile={activeFile} onSelect={(p) => {
-              if (splitView && activeFile && p !== activeFile) setSplitFile(p);
-              else openFileTab(p);
-            }} />
+            <FileTree
+              files={filteredFiles}
+              activeFile={activeFile}
+              onSelect={(p) => {
+                if (splitView && activeFile && p !== activeFile) setSplitFile(p);
+                else openFileTab(p);
+              }}
+              onDelete={(p) => {
+                setFiles((prev) => prev.filter((f) => f.path !== p));
+                closeFileTab(p);
+                notify?.(`Удалён ${p}`, "success");
+              }}
+            />
             <div className="editor-area">
               {breadcrumbs.length > 0 && (
                 <div className="breadcrumbs" style={{ display: "flex", alignItems: "center", gap: 6 }}>

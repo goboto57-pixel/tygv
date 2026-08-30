@@ -100,8 +100,16 @@ export function parseSingleShotResponse(text) {
 // Cheap upfront gate for whether a whole project can safely be inlined into
 // one prompt (context budget + a sane cap on file count so the model isn't
 // asked to silently re-scan hundreds of files it wasn't asked about).
-const SINGLE_SHOT_MAX_TOTAL_CHARS = 60_000;
-const SINGLE_SHOT_MAX_FILES = 25;
+//
+// Raised from the original 25 files / 60,000 chars: that threshold sent the
+// bulk of real edits (anything past a handful of files) into the multi-round
+// tool loop, where EVERY file costs a full extra model round-trip (see
+// module docstring above) — that loop, not the single-shot path, is the
+// actual reason ordinary edits were taking minutes. Mistral Medium/Large
+// comfortably handle a ~200K-char prompt, so this was leaving a lot of
+// legitimate single-shot-eligible edits on the table for no real reason.
+const SINGLE_SHOT_MAX_TOTAL_CHARS = 160_000;
+const SINGLE_SHOT_MAX_FILES = 60;
 
 export function isProjectSmallEnoughForSingleShot(fsMap) {
   if (fsMap.size === 0) return true; // new project — nothing to inline

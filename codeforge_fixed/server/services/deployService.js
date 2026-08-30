@@ -23,9 +23,17 @@ import { PassThrough } from "stream";
 const NETLIFY_API = "https://api.netlify.com/api/v1";
 
 function getToken() {
-  const token = process.env.NETLIFY_TOKEN;
+  // Accept the documented Netlify CLI env var name too — "access denied"
+  // reports usually turn out to be either (a) the token was set under
+  // NETLIFY_AUTH_TOKEN (Netlify's own CLI convention) while this code only
+  // looked for NETLIFY_TOKEN, so an old/placeholder value or nothing was
+  // used, or (b) the value has a trailing newline/space from being pasted
+  // into a hosting panel's env var UI, which silently breaks the
+  // "Authorization: Bearer <token>" header.
+  const raw = process.env.NETLIFY_TOKEN || process.env.NETLIFY_AUTH_TOKEN;
+  const token = raw ? raw.trim() : "";
   if (!token) {
-    const err = new Error("Хостинг не настроен: отсутствует NETLIFY_TOKEN на сервере.");
+    const err = new Error("Хостинг не настроен: отсутствует NETLIFY_TOKEN (или NETLIFY_AUTH_TOKEN) на сервере.");
     err.code = "NO_TOKEN";
     throw err;
   }
@@ -90,7 +98,14 @@ async function netlifyRequest(pathSuffix, { method = "GET", body, isZip = false 
   let json;
   try { json = text ? JSON.parse(text) : {}; } catch { json = { raw: text }; }
   if (!res.ok) {
-    const err = new Error(json?.message || `Netlify API error (${res.status})`);
+    // Surface Netlify's actual reason (invalid/expired token, wrong scope,
+    // site not found, etc) instead of a generic message — "access denied"
+    // with no detail is what made this hard to diagnose in the first place.
+    const detail = json?.message || json?.error || json?.raw;
+    const hint = res.status === 401 ? " (токен недействителен/просрочен, либо неверно назван env var)"
+      : res.status === 403 ? " (у токена нет прав на это действие — проверьте его scope в Netlify)"
+      : "";
+    const err = new Error(`Netlify API error (${res.status})${detail ? `: ${detail}` : ""}${hint}`);
     err.status = res.status;
     err.details = json;
     throw err;

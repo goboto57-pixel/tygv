@@ -34,4 +34,5 @@ export const toolDefinitions = [
   { type: "function", function: { name: "extract_colors", description: "Extract colors from CSS/files.", parameters: { type: "object", properties: {}, required: [] } } },
   { type: "function", function: { name: "generate_tests", description: "Generate test scaffold for file.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } },
   { type: "function", function: { name: "refactor", description: "Rename symbol across project.", parameters: { type: "object", properties: { old_name: { type: "string" }, new_name: { type: "string" } }, required: ["old_name", "new_name"] } } },
+  { type: "function", function: { name: "outline_file", description: "Structural outline of a file (function/class/component signatures + line numbers) WITHOUT its full body — much cheaper than read_file when you just need to know what's in a large file before deciding what to change.", parameters: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } } },
 ];
